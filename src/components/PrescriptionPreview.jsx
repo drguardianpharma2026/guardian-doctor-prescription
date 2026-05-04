@@ -51,7 +51,7 @@ const PrescriptionPreview = ({ data }) => {
       */}
       <div style={{
         position: 'absolute',
-        top: '3.0cm',
+        top: '1.8cm',
         left: '1.2cm',
         right: '1.2cm',
         fontFamily: "'Times New Roman', Times, serif",
@@ -94,12 +94,12 @@ const PrescriptionPreview = ({ data }) => {
       </div>
 
       {/* ══ SPACER TO START PRINTING AFTER Rx ══ */}
-      <div style={{ height: '6.0cm' }}></div>
+      <div style={{ height: '3.5cm' }}></div>
 
       <div style={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column' }}>
 
         {/* ══ CLINICAL DETAILS ══ */}
-        <div style={{ marginTop: '15pt', display: 'flex', flexDirection: 'column', gap: '8pt' }}>
+        <div style={{ marginTop: '10pt', display: 'flex', flexDirection: 'column', gap: '6pt' }}>
           {data.complaints && (
             <div style={{ fontSize: '10.5pt' }}>
               <span style={{ fontWeight: 800, textDecoration: 'underline' }}>CHIEF COMPLAINTS:</span>
@@ -124,7 +124,7 @@ const PrescriptionPreview = ({ data }) => {
         </div>
 
         {/* ══ RX SYMBOL ══ */}
-        <div style={{ marginTop: '15pt', fontSize: '18pt', fontWeight: 900, fontFamily: 'serif' }}>Rx</div>
+        <div style={{ marginTop: '10pt', fontSize: '18pt', fontWeight: 900, fontFamily: 'serif' }}>Rx</div>
 
         {/* ══ MEDICINES TABLE ══ */}
         <div style={{ flex: 1 }}>
@@ -185,7 +185,7 @@ const PrescriptionPreview = ({ data }) => {
 
         {/* ══ ADVICE SECTION ══ */}
         {data.advice && (
-          <div style={{ marginTop: '15pt', fontSize: '10.5pt' }}>
+          <div style={{ marginTop: '10pt', fontSize: '10.5pt' }}>
             <span style={{ fontWeight: 800, textDecoration: 'underline' }}>ADVICE / INSTRUCTIONS:</span>
             <div style={{ marginTop: '2pt', paddingLeft: '5pt', fontWeight: 600 }}>
               {data.advice.split('\n').map((line, i) => (
