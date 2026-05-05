@@ -40,7 +40,7 @@ const PrescriptionPreview = ({ data }) => {
         minHeight: '297mm',
         margin: '0 auto',
         color: '#000',
-        fontFamily: "'Inter', sans-serif",
+        fontFamily: "'Times New Roman', Times, serif",
         position: 'relative',
         boxSizing: 'border-box',
       }}
@@ -51,10 +51,9 @@ const PrescriptionPreview = ({ data }) => {
       */}
       <div style={{
         position: 'absolute',
-        top: '1.8cm',
+        top: '3.8cm',
         left: '1.2cm',
         right: '1.2cm',
-        fontFamily: "'Times New Roman', Times, serif",
         fontSize: '10pt',
         zIndex: 10
       }}>
@@ -94,7 +93,7 @@ const PrescriptionPreview = ({ data }) => {
       </div>
 
       {/* ══ SPACER TO START PRINTING AFTER Rx ══ */}
-      <div style={{ height: '3.5cm' }}></div>
+      <div style={{ height: '5.5cm' }}></div>
 
       <div style={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column' }}>
 
@@ -149,7 +148,7 @@ const PrescriptionPreview = ({ data }) => {
                   return (
                     <tr key={index}>
                       <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700 }}>{index + 1}</td>
-                      <td style={{ ...tdStyle, fontFamily: "'Times New Roman', Times, serif" }}>
+                      <td style={{ ...tdStyle }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '4pt', marginBottom: '1pt' }}>
                           <span style={{ fontSize: '9.5pt', fontWeight: 400, textTransform: 'uppercase' }}>
                             {med.type ? `${med.type}.` : ''}
@@ -202,7 +201,6 @@ const PrescriptionPreview = ({ data }) => {
           display: 'flex', 
           flexDirection: 'column', 
           alignItems: 'flex-end',
-          fontFamily: "'Times New Roman', Times, serif",
           paddingRight: '1.2cm'
         }}>
           {data.followUp && (

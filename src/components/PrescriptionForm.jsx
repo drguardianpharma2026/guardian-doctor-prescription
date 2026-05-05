@@ -254,14 +254,6 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
   return (
     <div className="glass-card" style={{ padding: '1.5rem' }}>
-      <datalist id="timing-list">
-        {timingOptions.map(opt => <option key={opt} value={opt} />)}
-      </datalist>
-      <datalist id="schedule-list">
-        {scheduleOptions.map(opt => <option key={opt} value={opt} />)}
-      </datalist>
-
-
 
       {/* ══ DOCTOR SETUP ══ */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
@@ -488,7 +480,9 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
               <div style={{ position: 'relative' }}>
                 <Label>Dosage</Label>
-                <div style={{ 
+                <div 
+                  onClick={() => updateMedicine(index, 'showDosageTips', true)}
+                  style={{ 
                   display: 'flex', 
                   border: '1px solid var(--border)', 
                   borderRadius: '8px', 
@@ -505,7 +499,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   <div style={{ width: '1px', background: 'var(--border)' }}></div>
                   <button 
                     type="button" 
-                    onClick={() => updateMedicine(index, 'showDosageTips', !med.showDosageTips)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateMedicine(index, 'showDosageTips', !med.showDosageTips);
+                    }}
                     style={{ 
                       width: '40px',
                       background: med.showDosageTips ? '#2563eb' : '#f8faff',
@@ -529,7 +526,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
                   {med.showDosageTips && (
                     <>
-                      <div onClick={() => updateMedicine(index, 'showDosageTips', false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDosageTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
                       <div style={{ 
                         position: 'absolute', 
                         top: '100%', 
@@ -546,7 +543,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                         {quickDosages.map(dos => (
                           <div
                             key={dos}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               updateMedicine(index, 'dosage', dos);
                               updateMedicine(index, 'showDosageTips', false);
                             }}
@@ -572,7 +570,9 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
               <div style={{ position: 'relative' }}>
                 <Label>Timing</Label>
-                <div style={{ 
+                <div 
+                  onClick={() => updateMedicine(index, 'showTimingTips', true)}
+                  style={{ 
                   display: 'flex', 
                   border: '1px solid var(--border)', 
                   borderRadius: '8px', 
@@ -580,7 +580,6 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   position: 'relative'
                 }}>
                   <input 
-                    list="timing-list" 
                     placeholder="After Meal" 
                     value={med.timing} 
                     onChange={(e) => updateMedicine(index, 'timing', e.target.value)} 
@@ -589,7 +588,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   <div style={{ width: '1px', background: 'var(--border)' }}></div>
                   <button 
                     type="button" 
-                    onClick={() => updateMedicine(index, 'showTimingTips', !med.showTimingTips)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateMedicine(index, 'showTimingTips', !med.showTimingTips);
+                    }}
                     style={{ 
                       width: '40px',
                       background: med.showTimingTips ? '#16a34a' : '#f0fdf4',
@@ -613,7 +615,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
                   {med.showTimingTips && (
                     <>
-                      <div onClick={() => updateMedicine(index, 'showTimingTips', false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showTimingTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
                       <div style={{ 
                         position: 'absolute', 
                         top: '100%', 
@@ -630,7 +632,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                         {timingOptions.map(opt => (
                           <div
                             key={opt}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               updateMedicine(index, 'timing', opt);
                               updateMedicine(index, 'showTimingTips', false);
                             }}
@@ -656,7 +659,9 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
               <div style={{ position: 'relative' }}>
                 <Label>Schedule</Label>
-                <div style={{ 
+                <div 
+                  onClick={() => updateMedicine(index, 'showScheduleTips', true)}
+                  style={{ 
                   display: 'flex', 
                   border: '1px solid var(--border)', 
                   borderRadius: '8px', 
@@ -672,7 +677,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   <div style={{ width: '1px', background: 'var(--border)' }}></div>
                   <button 
                     type="button" 
-                    onClick={() => updateMedicine(index, 'showScheduleTips', !med.showScheduleTips)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateMedicine(index, 'showScheduleTips', !med.showScheduleTips);
+                    }}
                     style={{ 
                       width: '40px',
                       background: med.showScheduleTips ? '#9333ea' : '#faf5ff',
@@ -696,7 +704,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
                   {med.showScheduleTips && (
                     <>
-                      <div onClick={() => updateMedicine(index, 'showScheduleTips', false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showScheduleTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
                       <div style={{ 
                         position: 'absolute', 
                         top: '100%', 
@@ -713,7 +721,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                         {scheduleOptions.map(opt => (
                           <div
                             key={opt}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               updateMedicine(index, 'schedule', opt);
                               updateMedicine(index, 'showScheduleTips', false);
                             }}
@@ -739,7 +748,9 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
               <div style={{ position: 'relative' }}>
                 <Label>Duration</Label>
-                <div style={{ 
+                <div 
+                  onClick={() => updateMedicine(index, 'showDurationTips', true)}
+                  style={{ 
                   display: 'flex', 
                   border: '1px solid var(--border)', 
                   borderRadius: '8px', 
@@ -755,7 +766,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   <div style={{ width: '1px', background: 'var(--border)' }}></div>
                   <button 
                     type="button" 
-                    onClick={() => updateMedicine(index, 'showDurationTips', !med.showDurationTips)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateMedicine(index, 'showDurationTips', !med.showDurationTips);
+                    }}
                     style={{ 
                       width: '40px',
                       background: med.showDurationTips ? '#ea580c' : '#fff7ed',
@@ -779,7 +793,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
                   {med.showDurationTips && (
                     <>
-                      <div onClick={() => updateMedicine(index, 'showDurationTips', false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDurationTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
                       <div style={{ 
                         position: 'absolute', 
                         top: '100%', 
@@ -796,7 +810,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                         {durationOptions.map(opt => (
                           <div
                             key={opt}
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               updateMedicine(index, 'duration', opt);
                               updateMedicine(index, 'showDurationTips', false);
                             }}
