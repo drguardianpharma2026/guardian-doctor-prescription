@@ -51,7 +51,7 @@ const PrescriptionPreview = ({ data }) => {
       */}
       <div style={{
         position: 'absolute',
-        top: '3.8cm',
+        top: '4.3cm',
         left: '1.2cm',
         right: '1.2cm',
         fontSize: '10pt',
@@ -93,7 +93,7 @@ const PrescriptionPreview = ({ data }) => {
       </div>
 
       {/* ══ SPACER TO START PRINTING AFTER Rx ══ */}
-      <div style={{ height: '5.5cm' }}></div>
+      <div style={{ height: '6.0cm' }}></div>
 
       <div style={{ position: 'relative', zIndex: 1, flex: 1, display: 'flex', flexDirection: 'column' }}>
 
