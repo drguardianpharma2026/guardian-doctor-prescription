@@ -25,9 +25,14 @@
 body {
   font-family: 'Outfit', 'Inter', 'Noto Sans Tamil', system-ui, -apple-system, sans-serif;
   background-color: var(--background);
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(210,100%,98%,1) 0, transparent 50%), 
+    radial-gradient(at 50% 0%, hsla(215,100%,96%,1) 0, transparent 50%),
+    radial-gradient(at 100% 0%, hsla(210,100%,98%,1) 0, transparent 50%);
   color: var(--text);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
 }
 
 h1,

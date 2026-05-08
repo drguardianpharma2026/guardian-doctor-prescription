@@ -80,10 +80,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
       
       // Find if existing name has a title
       let baseName = name;
-      let existingTitle = '';
       for (const t of titles) {
         if (name.toLowerCase().startsWith(t.toLowerCase() + ' ')) {
-          existingTitle = t;
           baseName = name.substring(t.length + 1).trim();
           break;
         }
@@ -216,6 +214,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
       });
     }
   };
+
+  const medicineTypes = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Sachet', 'Inhaler'];
 
   const divider = <div style={{ height: '1px', background: 'var(--border)', margin: '1.5rem 0' }} />;
 
@@ -381,6 +381,26 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
         </div>
       </div>
 
+      {/* Row 4: Vitals */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem', marginBottom: '2rem', background: '#f0f9ff', padding: '1rem', borderRadius: '12px', border: '1px solid #bae6fd' }}>
+        <div>
+          <Label>Weight (kg)</Label>
+          <input type="text" value={data.weight || ''} onChange={(e) => updateField('weight', e.target.value)} placeholder="65" />
+        </div>
+        <div>
+          <Label>BP (mmHg)</Label>
+          <input type="text" value={data.bp || ''} onChange={(e) => updateField('bp', e.target.value)} placeholder="120/80" />
+        </div>
+        <div>
+          <Label>Pulse (bpm)</Label>
+          <input type="text" value={data.pulse || ''} onChange={(e) => updateField('pulse', e.target.value)} placeholder="72" />
+        </div>
+        <div>
+          <Label>Temp (°F)</Label>
+          <input type="text" value={data.temp || ''} onChange={(e) => updateField('temp', e.target.value)} placeholder="98.4" />
+        </div>
+      </div>
+
       <button
         onClick={handleClearPatient}
         style={{
@@ -423,9 +443,14 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1rem' }}>
         {data.medicines.map((med, index) => (
-          <div key={med.id || index} style={{
-            padding: '1rem', background: '#fff', border: '1px solid var(--border)',
-            borderRadius: '10px', boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+          <div key={med.id || index} className="medicine-card" style={{
+            padding: '1rem', 
+            background: '#fff', 
+            border: '1px solid var(--border)',
+            borderRadius: '10px', 
+            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+            transition: 'all 0.3s ease',
+            position: 'relative'
           }}>
             {/* Row 1: type + name + qty + reorder + delete */}
             <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
@@ -435,19 +460,18 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                 style={{ width: '110px', fontWeight: 600, fontSize: '0.8rem' }}
               >
                 <option value="">Type</option>
-                <option value="TABLETS">TABLETS</option>
-                <option value="CAPSULES">CAPSULES</option>
-                <option value="GEL">GEL</option>
-                <option value="SYRUP">SYRUP</option>
-                <option value="INJECTION">INJECTION</option>
-                <option value="DROPS">DROPS (EYE/EAR)</option>
-                <option value="CREAM">CREAM</option>
-                <option value="OINTMENT">OINTMENT</option>
-                <option value="SUSPENSION">SUSPENSION</option>
+                <option value="TAB">TAB (Tablets)</option>
+                <option value="CAP">CAP (Capsules)</option>
+                <option value="SYP">SYP (Syrup)</option>
+                <option value="SUSP">SUSP (Suspension)</option>
+                <option value="INJ">INJ (Injection)</option>
+                <option value="GEL">GEL / OINT</option>
+                <option value="CRM">CRM (Cream)</option>
+                <option value="DRP">DRP (Drops)</option>
+                <option value="SACHET">SACHET</option>
                 <option value="POWDER">POWDER</option>
-                <option value="INHALER">INHALER</option>
-                <option value="SPRAY">SPRAY</option>
                 <option value="LOTION">LOTION</option>
+                <option value="SPRAY">SPRAY</option>
               </select>
               <input placeholder="Medicine Name" value={med.name} onChange={(e) => updateMedicine(index, 'name', e.target.value)} style={{ fontWeight: 600 }} />
               <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} style={{ width: '60px' }} />

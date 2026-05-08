@@ -1,3 +1,4 @@
+/* global html2pdf */
 import React, { useState } from 'react'
 import Header from './components/Header'
 import PrescriptionForm from './components/PrescriptionForm'
@@ -23,25 +24,44 @@ function App() {
     localStorage.setItem('savedDoctors', JSON.stringify(savedDoctors));
   }, [savedDoctors]);
 
-  const [data, setData] = useState({
-    clinicName: 'THULIR MULTISPECIALITY HOSPITAL',
-    phone1: '04366 222108, 70949 19494, 70949 29494',
-    mrn: '07042',
-    visitNo: 'OP/25011883',
-    date: '2025-07-28',
-    patientName: 'Mrs. S MAHABOOBA BEEVI',
-    age: '61',
-    gender: 'Y/F',
-    phone: '9659731383',
-    complaints: 'KNEE PAIN\nLEFT SIDE 10 DAYS',
-    diagnosis: '',
-    medicines: [{ type: 'TABLETS', name: 'HYAL ORAL', composition: 'SODIUM HYALURONATE 20 mg', dosage: '1-0-1', timing: 'உணவுக்குப் பிறகு', schedule: 'தினசரி', duration: '30 நாட்கள்', remarks: '', qty: '60' }],
-    advice: 'PHYSIO ADVISED\nHOT WATER MASSAGE THRICE\nQ STRENGTHENING EXERCISES\nWAX MOBILSATIO, IFT PHYSIO 7 DAYS',
-    followUp: '2025-08-27',
-    doctorName: savedDoctors[0]?.name || '',
-    doctorQualifications: savedDoctors[0]?.qualifications || '',
-    doctorRole: savedDoctors[0]?.role || '',
-    doctorRegNo: savedDoctors[0]?.regNo || ''
+  // Persist current data to localStorage
+  React.useEffect(() => {
+    localStorage.setItem('currentPrescription', JSON.stringify(data));
+  }, [data]);
+
+  const [data, setData] = useState(() => {
+    const saved = localStorage.getItem('currentPrescription');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse saved prescription", e);
+      }
+    }
+    return {
+      clinicName: 'THULIR MULTISPECIALITY HOSPITAL',
+      phone1: '04366 222108, 70949 19494, 70949 29494',
+      mrn: '07042',
+      visitNo: 'OP/25011883',
+      date: new Date().toISOString().split('T')[0],
+      patientName: '',
+      age: '',
+      gender: '',
+      phone: '',
+      complaints: '',
+      diagnosis: '',
+      medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
+      advice: '',
+      followUp: '',
+      weight: '',
+      bp: '',
+      pulse: '',
+      temp: '',
+      doctorName: savedDoctors[0]?.name || '',
+      doctorQualifications: savedDoctors[0]?.qualifications || '',
+      doctorRole: savedDoctors[0]?.role || '',
+      doctorRegNo: savedDoctors[0]?.regNo || ''
+    };
   });
 
   const handleDoctorSelect = (doctor) => {
@@ -158,6 +178,11 @@ function App() {
   const handleShare = async () => {
     const paperEl = document.getElementById('prescription-paper');
     if (!paperEl) { alert('No prescription to share.'); return; }
+
+    if (typeof html2pdf === 'undefined') {
+      alert('PDF library is not loaded yet. Please wait a moment or check your internet connection.');
+      return;
+    }
 
     const shareBtn = document.activeElement;
     const originalText = shareBtn?.innerText || 'Share';

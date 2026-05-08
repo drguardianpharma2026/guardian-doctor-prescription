@@ -1,15 +1,8 @@
-import React from 'react';
-
 const PrescriptionPreview = ({ data }) => {
   const formatDate = (dateStr) => {
     if (!dateStr) return '---';
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-GB').replace(/\//g, '/');
-  };
-
-  const splitLines = (text) => {
-    if (!text) return [];
-    return text.split('\n').filter(line => line.trim() !== '');
   };
 
   const tdStyle = {
@@ -90,6 +83,16 @@ const PrescriptionPreview = ({ data }) => {
             <span style={{ fontWeight: 800 }}>{data.phone || '----------'}</span>
           </div>
         </div>
+
+        {/* Row 3: Vitals Summary */}
+        {(data.weight || data.bp || data.pulse || data.temp) && (
+          <div style={{ display: 'flex', gap: '15pt', marginTop: '6pt', fontSize: '9pt', color: '#444' }}>
+            {data.weight && <div><span style={{ fontStyle: 'italic' }}>Wt:</span> <span style={{ fontWeight: 700 }}>{data.weight} kg</span></div>}
+            {data.bp && <div><span style={{ fontStyle: 'italic' }}>BP:</span> <span style={{ fontWeight: 700 }}>{data.bp} mmHg</span></div>}
+            {data.pulse && <div><span style={{ fontStyle: 'italic' }}>Pulse:</span> <span style={{ fontWeight: 700 }}>{data.pulse} bpm</span></div>}
+            {data.temp && <div><span style={{ fontStyle: 'italic' }}>Temp:</span> <span style={{ fontWeight: 700 }}>{data.temp} °F</span></div>}
+          </div>
+        )}
       </div>
 
       {/* ══ SPACER TO START PRINTING AFTER Rx ══ */}
