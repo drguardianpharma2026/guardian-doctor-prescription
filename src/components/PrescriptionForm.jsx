@@ -442,430 +442,435 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1rem' }}>
-        {data.medicines.map((med, index) => (
-          <div key={med.id || index} className="medicine-card" style={{
-            padding: '1rem', 
-            background: '#fff', 
-            border: '1px solid var(--border)',
-            borderRadius: '10px', 
-            boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
-            transition: 'all 0.3s ease',
-            position: 'relative'
-          }}>
-            {/* Row 1: type + name + qty + reorder + delete */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
-              <select
-                value={med.type}
-                onChange={(e) => updateMedicine(index, 'type', e.target.value)}
-                style={{ width: '110px', fontWeight: 600, fontSize: '0.8rem' }}
-              >
-                <option value="">Type</option>
-                <option value="TAB">TAB (Tablets)</option>
-                <option value="CAP">CAP (Capsules)</option>
-                <option value="SYP">SYP (Syrup)</option>
-                <option value="SUSP">SUSP (Suspension)</option>
-                <option value="INJ">INJ (Injection)</option>
-                <option value="GEL">GEL / OINT</option>
-                <option value="CRM">CRM (Cream)</option>
-                <option value="DRP">DRP (Drops)</option>
-                <option value="SACHET">SACHET</option>
-                <option value="POWDER">POWDER</option>
-                <option value="LOTION">LOTION</option>
-                <option value="SPRAY">SPRAY</option>
-              </select>
-              <input placeholder="Medicine Name" value={med.name} onChange={(e) => updateMedicine(index, 'name', e.target.value)} style={{ fontWeight: 600 }} />
-              <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} style={{ width: '60px' }} />
-              
-              {/* Reorder Arrows */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <button type="button" onClick={() => moveMedicine(index, -1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === 0}>▲</button>
-                <button type="button" onClick={() => moveMedicine(index, 1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === data.medicines.length - 1}>▼</button>
+        {data.medicines.map((med, index) => {
+          if (!med) return null;
+          return (
+            <div key={med.id || index} className="medicine-card" style={{
+              padding: '1rem', 
+              background: '#fff', 
+              border: '1px solid var(--border)',
+              borderRadius: '10px', 
+              boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+              transition: 'all 0.3s ease',
+              position: 'relative'
+            }}>
+              {/* Row 1: type + name + qty + reorder + delete */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                <select
+                  value={med.type}
+                  onChange={(e) => updateMedicine(index, 'type', e.target.value)}
+                  style={{ width: '110px', fontWeight: 600, fontSize: '0.8rem' }}
+                >
+                  <option value="">Type</option>
+                  <option value="TAB">TAB (Tablets)</option>
+                  <option value="CAP">CAP (Capsules)</option>
+                  <option value="SYP">SYP (Syrup)</option>
+                  <option value="SUSP">SUSP (Suspension)</option>
+                  <option value="INJ">INJ (Injection)</option>
+                  <option value="GEL">GEL / OINT</option>
+                  <option value="CRM">CRM (Cream)</option>
+                  <option value="DRP">DRP (Drops)</option>
+                  <option value="SACHET">SACHET</option>
+                  <option value="POWDER">POWDER</option>
+                  <option value="LOTION">LOTION</option>
+                  <option value="SPRAY">SPRAY</option>
+                </select>
+                <input placeholder="Medicine Name" value={med.name} onChange={(e) => updateMedicine(index, 'name', e.target.value)} style={{ fontWeight: 600 }} />
+                <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} style={{ width: '60px' }} />
+                
+                {/* Reorder Arrows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <button type="button" onClick={() => moveMedicine(index, -1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === 0}>▲</button>
+                  <button type="button" onClick={() => moveMedicine(index, 1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === data.medicines.length - 1}>▼</button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => removeMedicine(index)}
+                  style={{
+                    background: 'none', border: 'none', color: '#ff4d4d',
+                    cursor: 'pointer', padding: '0.5rem', display: 'flex'
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => removeMedicine(index)}
-                style={{
-                  background: 'none', border: 'none', color: '#ff4d4d',
-                  cursor: 'pointer', padding: '0.5rem', display: 'flex'
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
+              {/* Row 2: composition */}
+              <textarea
+                placeholder="Composition / Notes"
+                value={med.composition}
+                onChange={(e) => updateMedicine(index, 'composition', e.target.value)}
+                style={{ fontSize: '0.85rem', marginBottom: '0.5rem', minHeight: '52px' }}
+              />
+
+              {/* Row 3: dosage / timing / schedule / duration / remarks */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <div style={{ position: 'relative' }}>
+                  <Label>Dosage</Label>
+                  <div 
+                    onClick={() => updateMedicine(index, 'showDosageTips', true)}
+                    style={{ 
+                    display: 'flex', 
+                    border: '1px solid var(--border)', 
+                    borderRadius: '8px', 
+                    background: 'white',
+                    transition: 'border-color 0.2s',
+                    position: 'relative'
+                  }}>
+                    <input 
+                      placeholder="1-0-1" 
+                      value={med.dosage} 
+                      onChange={(e) => updateMedicine(index, 'dosage', e.target.value)} 
+                      style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
+                    />
+                    <div style={{ width: '1px', background: 'var(--border)' }}></div>
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateMedicine(index, 'showDosageTips', !med.showDosageTips);
+                      }}
+                      style={{ 
+                        width: '40px',
+                        background: med.showDosageTips ? '#2563eb' : '#f8faff',
+                        border: 'none',
+                        borderRadius: '0 8px 8px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: med.showDosageTips ? 'white' : '#2563eb',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <svg 
+                        style={{ transform: med.showDosageTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </button>
+
+                    {med.showDosageTips && (
+                      <>
+                        <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDosageTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                        <div style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          background: 'white', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '8px',
+                          marginTop: '4px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                          zIndex: 100,
+                          overflow: 'hidden'
+                        }}>
+                          {quickDosages.map(dos => (
+                            <div
+                              key={dos}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateMedicine(index, 'dosage', dos);
+                                updateMedicine(index, 'showDosageTips', false);
+                              }}
+                              onMouseEnter={(e) => { e.target.style.background = '#2563eb'; e.target.style.color = 'white'; }}
+                              onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
+                              style={{
+                                padding: '10px 14px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.1s',
+                                borderBottom: '1px solid #f1f5f9'
+                              }}
+                            >
+                              {dos}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Label>Timing</Label>
+                  <div 
+                    onClick={() => updateMedicine(index, 'showTimingTips', true)}
+                    style={{ 
+                    display: 'flex', 
+                    border: '1px solid var(--border)', 
+                    borderRadius: '8px', 
+                    background: 'white',
+                    position: 'relative'
+                  }}>
+                    <input 
+                      placeholder="After Meal" 
+                      value={med.timing} 
+                      onChange={(e) => updateMedicine(index, 'timing', e.target.value)} 
+                      style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
+                    />
+                    <div style={{ width: '1px', background: 'var(--border)' }}></div>
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateMedicine(index, 'showTimingTips', !med.showTimingTips);
+                      }}
+                      style={{ 
+                        width: '40px',
+                        background: med.showTimingTips ? '#16a34a' : '#f0fdf4',
+                        border: 'none',
+                        borderRadius: '0 8px 8px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: med.showTimingTips ? 'white' : '#16a34a',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <svg 
+                        style={{ transform: med.showTimingTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </button>
+
+                    {med.showTimingTips && (
+                      <>
+                        <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showTimingTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                        <div style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          background: 'white', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '8px',
+                          marginTop: '4px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                          zIndex: 100,
+                          overflow: 'hidden'
+                        }}>
+                          {timingOptions.map(opt => (
+                            <div
+                              key={opt}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateMedicine(index, 'timing', opt);
+                                updateMedicine(index, 'showTimingTips', false);
+                              }}
+                              onMouseEnter={(e) => { e.target.style.background = '#16a34a'; e.target.style.color = 'white'; }}
+                              onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
+                              style={{
+                                padding: '10px 14px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.1s',
+                                borderBottom: '1px solid #f1f5f9'
+                              }}
+                            >
+                              {opt}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Label>Schedule</Label>
+                  <div 
+                    onClick={() => updateMedicine(index, 'showScheduleTips', true)}
+                    style={{ 
+                    display: 'flex', 
+                    border: '1px solid var(--border)', 
+                    borderRadius: '8px', 
+                    background: 'white',
+                    position: 'relative'
+                  }}>
+                    <input 
+                      placeholder="Daily" 
+                      value={med.schedule} 
+                      onChange={(e) => updateMedicine(index, 'schedule', e.target.value)} 
+                      style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
+                    />
+                    <div style={{ width: '1px', background: 'var(--border)' }}></div>
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateMedicine(index, 'showScheduleTips', !med.showScheduleTips);
+                      }}
+                      style={{ 
+                        width: '40px',
+                        background: med.showScheduleTips ? '#9333ea' : '#faf5ff',
+                        border: 'none',
+                        borderRadius: '0 8px 8px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: med.showScheduleTips ? 'white' : '#9333ea',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <svg 
+                        style={{ transform: med.showScheduleTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </button>
+
+                    {med.showScheduleTips && (
+                      <>
+                        <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showScheduleTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                        <div style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          background: 'white', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '8px',
+                          marginTop: '4px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                          zIndex: 100,
+                          overflow: 'hidden'
+                        }}>
+                          {scheduleOptions.map(opt => (
+                            <div
+                              key={opt}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateMedicine(index, 'schedule', opt);
+                                updateMedicine(index, 'showScheduleTips', false);
+                              }}
+                              onMouseEnter={(e) => { e.target.style.background = '#9333ea'; e.target.style.color = 'white'; }}
+                              onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
+                              style={{
+                                padding: '10px 14px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.1s',
+                                borderBottom: '1px solid #f1f5f9'
+                              }}
+                            >
+                              {opt}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <Label>Duration</Label>
+                  <div 
+                    onClick={() => updateMedicine(index, 'showDurationTips', true)}
+                    style={{ 
+                    display: 'flex', 
+                    border: '1px solid var(--border)', 
+                    borderRadius: '8px', 
+                    background: 'white',
+                    position: 'relative'
+                  }}>
+                    <input 
+                      placeholder="30 நாட்கள்" 
+                      value={med.duration} 
+                      onChange={(e) => updateMedicine(index, 'duration', e.target.value)} 
+                      style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
+                    />
+                    <div style={{ width: '1px', background: 'var(--border)' }}></div>
+                    <button 
+                      type="button" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateMedicine(index, 'showDurationTips', !med.showDurationTips);
+                      }}
+                      style={{ 
+                        width: '40px',
+                        background: med.showDurationTips ? '#ea580c' : '#fff7ed',
+                        border: 'none',
+                        borderRadius: '0 8px 8px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: med.showDurationTips ? 'white' : '#ea580c',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <svg 
+                        style={{ transform: med.showDurationTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                        width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    </button>
+
+                    {med.showDurationTips && (
+                      <>
+                        <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDurationTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
+                        <div style={{ 
+                          position: 'absolute', 
+                          top: '100%', 
+                          left: 0, 
+                          right: 0, 
+                          background: 'white', 
+                          border: '1px solid var(--border)', 
+                          borderRadius: '8px',
+                          marginTop: '4px',
+                          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                          zIndex: 100,
+                          overflow: 'hidden'
+                        }}>
+                          {durationOptions.map(opt => (
+                            <div
+                              key={opt}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateMedicine(index, 'duration', opt);
+                                updateMedicine(index, 'showDurationTips', false);
+                              }}
+                              onMouseEnter={(e) => { e.target.style.background = '#ea580c'; e.target.style.color = 'white'; }}
+                              onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
+                              style={{
+                                padding: '10px 14px',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                transition: 'all 0.1s',
+                                borderBottom: '1px solid #f1f5f9'
+                              }}
+                            >
+                              {opt}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <Label>Qty</Label>
+                  <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} />
+                </div>
+              </div>
             </div>
-            {/* Row 2: composition */}
-            <textarea
-              placeholder="Composition / Notes"
-              value={med.composition}
-              onChange={(e) => updateMedicine(index, 'composition', e.target.value)}
-              style={{ fontSize: '0.85rem', marginBottom: '0.5rem', minHeight: '52px' }}
-            />
-            {/* Row 3: dosage / timing / schedule / duration / remarks */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
-              <div style={{ position: 'relative' }}>
-                <Label>Dosage</Label>
-                <div 
-                  onClick={() => updateMedicine(index, 'showDosageTips', true)}
-                  style={{ 
-                  display: 'flex', 
-                  border: '1px solid var(--border)', 
-                  borderRadius: '8px', 
-                  background: 'white',
-                  transition: 'border-color 0.2s',
-                  position: 'relative'
-                }}>
-                  <input 
-                    placeholder="1-0-1" 
-                    value={med.dosage} 
-                    onChange={(e) => updateMedicine(index, 'dosage', e.target.value)} 
-                    style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
-                  />
-                  <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                  <button 
-                    type="button" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateMedicine(index, 'showDosageTips', !med.showDosageTips);
-                    }}
-                    style={{ 
-                      width: '40px',
-                      background: med.showDosageTips ? '#2563eb' : '#f8faff',
-                      border: 'none',
-                      borderRadius: '0 8px 8px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: med.showDosageTips ? 'white' : '#2563eb',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <svg 
-                      style={{ transform: med.showDosageTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                  </button>
-
-                  {med.showDosageTips && (
-                    <>
-                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDosageTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                      <div style={{ 
-                        position: 'absolute', 
-                        top: '100%', 
-                        left: 0, 
-                        right: 0, 
-                        background: 'white', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px',
-                        marginTop: '4px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                        zIndex: 100,
-                        overflow: 'hidden'
-                      }}>
-                        {quickDosages.map(dos => (
-                          <div
-                            key={dos}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateMedicine(index, 'dosage', dos);
-                              updateMedicine(index, 'showDosageTips', false);
-                            }}
-                            onMouseEnter={(e) => { e.target.style.background = '#2563eb'; e.target.style.color = 'white'; }}
-                            onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: '0.85rem',
-                              cursor: 'pointer',
-                              fontWeight: 600,
-                              transition: 'all 0.1s',
-                              borderBottom: '1px solid #f1f5f9'
-                            }}
-                          >
-                            {dos}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ position: 'relative' }}>
-                <Label>Timing</Label>
-                <div 
-                  onClick={() => updateMedicine(index, 'showTimingTips', true)}
-                  style={{ 
-                  display: 'flex', 
-                  border: '1px solid var(--border)', 
-                  borderRadius: '8px', 
-                  background: 'white',
-                  position: 'relative'
-                }}>
-                  <input 
-                    placeholder="After Meal" 
-                    value={med.timing} 
-                    onChange={(e) => updateMedicine(index, 'timing', e.target.value)} 
-                    style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
-                  />
-                  <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                  <button 
-                    type="button" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateMedicine(index, 'showTimingTips', !med.showTimingTips);
-                    }}
-                    style={{ 
-                      width: '40px',
-                      background: med.showTimingTips ? '#16a34a' : '#f0fdf4',
-                      border: 'none',
-                      borderRadius: '0 8px 8px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: med.showTimingTips ? 'white' : '#16a34a',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <svg 
-                      style={{ transform: med.showTimingTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                  </button>
-
-                  {med.showTimingTips && (
-                    <>
-                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showTimingTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                      <div style={{ 
-                        position: 'absolute', 
-                        top: '100%', 
-                        left: 0, 
-                        right: 0, 
-                        background: 'white', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px',
-                        marginTop: '4px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                        zIndex: 100,
-                        overflow: 'hidden'
-                      }}>
-                        {timingOptions.map(opt => (
-                          <div
-                            key={opt}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateMedicine(index, 'timing', opt);
-                              updateMedicine(index, 'showTimingTips', false);
-                            }}
-                            onMouseEnter={(e) => { e.target.style.background = '#16a34a'; e.target.style.color = 'white'; }}
-                            onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: '0.85rem',
-                              cursor: 'pointer',
-                              fontWeight: 600,
-                              transition: 'all 0.1s',
-                              borderBottom: '1px solid #f1f5f9'
-                            }}
-                          >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ position: 'relative' }}>
-                <Label>Schedule</Label>
-                <div 
-                  onClick={() => updateMedicine(index, 'showScheduleTips', true)}
-                  style={{ 
-                  display: 'flex', 
-                  border: '1px solid var(--border)', 
-                  borderRadius: '8px', 
-                  background: 'white',
-                  position: 'relative'
-                }}>
-                  <input 
-                    placeholder="Daily" 
-                    value={med.schedule} 
-                    onChange={(e) => updateMedicine(index, 'schedule', e.target.value)} 
-                    style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
-                  />
-                  <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                  <button 
-                    type="button" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateMedicine(index, 'showScheduleTips', !med.showScheduleTips);
-                    }}
-                    style={{ 
-                      width: '40px',
-                      background: med.showScheduleTips ? '#9333ea' : '#faf5ff',
-                      border: 'none',
-                      borderRadius: '0 8px 8px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: med.showScheduleTips ? 'white' : '#9333ea',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <svg 
-                      style={{ transform: med.showScheduleTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                  </button>
-
-                  {med.showScheduleTips && (
-                    <>
-                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showScheduleTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                      <div style={{ 
-                        position: 'absolute', 
-                        top: '100%', 
-                        left: 0, 
-                        right: 0, 
-                        background: 'white', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px',
-                        marginTop: '4px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                        zIndex: 100,
-                        overflow: 'hidden'
-                      }}>
-                        {scheduleOptions.map(opt => (
-                          <div
-                            key={opt}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateMedicine(index, 'schedule', opt);
-                              updateMedicine(index, 'showScheduleTips', false);
-                            }}
-                            onMouseEnter={(e) => { e.target.style.background = '#9333ea'; e.target.style.color = 'white'; }}
-                            onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: '0.85rem',
-                              cursor: 'pointer',
-                              fontWeight: 600,
-                              transition: 'all 0.1s',
-                              borderBottom: '1px solid #f1f5f9'
-                            }}
-                          >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ position: 'relative' }}>
-                <Label>Duration</Label>
-                <div 
-                  onClick={() => updateMedicine(index, 'showDurationTips', true)}
-                  style={{ 
-                  display: 'flex', 
-                  border: '1px solid var(--border)', 
-                  borderRadius: '8px', 
-                  background: 'white',
-                  position: 'relative'
-                }}>
-                  <input 
-                    placeholder="30 நாட்கள்" 
-                    value={med.duration} 
-                    onChange={(e) => updateMedicine(index, 'duration', e.target.value)} 
-                    style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
-                  />
-                  <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                  <button 
-                    type="button" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateMedicine(index, 'showDurationTips', !med.showDurationTips);
-                    }}
-                    style={{ 
-                      width: '40px',
-                      background: med.showDurationTips ? '#ea580c' : '#fff7ed',
-                      border: 'none',
-                      borderRadius: '0 8px 8px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: med.showDurationTips ? 'white' : '#ea580c',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    <svg 
-                      style={{ transform: med.showDurationTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-                      width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                    >
-                      <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                  </button>
-
-                  {med.showDurationTips && (
-                    <>
-                      <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDurationTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                      <div style={{ 
-                        position: 'absolute', 
-                        top: '100%', 
-                        left: 0, 
-                        right: 0, 
-                        background: 'white', 
-                        border: '1px solid var(--border)', 
-                        borderRadius: '8px',
-                        marginTop: '4px',
-                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                        zIndex: 100,
-                        overflow: 'hidden'
-                      }}>
-                        {durationOptions.map(opt => (
-                          <div
-                            key={opt}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              updateMedicine(index, 'duration', opt);
-                              updateMedicine(index, 'showDurationTips', false);
-                            }}
-                            onMouseEnter={(e) => { e.target.style.background = '#ea580c'; e.target.style.color = 'white'; }}
-                            onMouseLeave={(e) => { e.target.style.background = 'white'; e.target.style.color = 'inherit'; }}
-                            style={{
-                              padding: '10px 14px',
-                              fontSize: '0.85rem',
-                              cursor: 'pointer',
-                              fontWeight: 600,
-                              transition: 'all 0.1s',
-                              borderBottom: '1px solid #f1f5f9'
-                            }}
-                          >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <Label>Qty</Label>
-                <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} />
-              </div>
-            </div>
-          </div>
-        ))}
+          )
+        })}
 
         <button
           onClick={addMedicine}

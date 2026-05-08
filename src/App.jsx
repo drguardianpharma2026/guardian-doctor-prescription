@@ -1,15 +1,15 @@
 /* global html2pdf */
 import React, { useState } from 'react'
-import Header from './components/Header'
-import PrescriptionForm from './components/PrescriptionForm'
-import PrescriptionPreview from './components/PrescriptionPreview'
+import Header from './components/Header.jsx'
+import PrescriptionForm from './components/PrescriptionForm.jsx'
+import PrescriptionPreview from './components/PrescriptionPreview.jsx'
 
 function App() {
   const [activeTab, setActiveTab] = useState('form'); // 'form' | 'preview'
 
   // Load saved doctors from localStorage on initial render
   const [savedDoctors, setSavedDoctors] = useState(() => {
-    const saved = localStorage.getItem('savedDoctors');
+    const saved = localStorage.getItem('savedDoctors_v2');
     return saved ? JSON.parse(saved) : [
       {
         name: 'Dr. S. BASHEER AHMED',
@@ -20,29 +20,12 @@ function App() {
     ];
   });
 
-  React.useEffect(() => {
-    localStorage.setItem('savedDoctors', JSON.stringify(savedDoctors));
-  }, [savedDoctors]);
-
-  // Persist current data to localStorage
-  React.useEffect(() => {
-    localStorage.setItem('currentPrescription', JSON.stringify(data));
-  }, [data]);
-
   const [data, setData] = useState(() => {
-    const saved = localStorage.getItem('currentPrescription');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Failed to parse saved prescription", e);
-      }
-    }
-    return {
+    const defaults = {
       clinicName: 'THULIR MULTISPECIALITY HOSPITAL',
       phone1: '04366 222108, 70949 19494, 70949 29494',
-      mrn: '07042',
-      visitNo: 'OP/25011883',
+      mrn: '',
+      visitNo: '',
       date: new Date().toISOString().split('T')[0],
       patientName: '',
       age: '',
@@ -62,7 +45,33 @@ function App() {
       doctorRole: savedDoctors[0]?.role || '',
       doctorRegNo: savedDoctors[0]?.regNo || ''
     };
+
+    const saved = localStorage.getItem('currentPrescription_v2');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        const merged = { ...defaults, ...parsed };
+        // Ensure medicines is always an array and filter out nulls
+        if (Array.isArray(merged.medicines)) {
+          merged.medicines = merged.medicines.filter(m => m !== null && typeof m === 'object');
+        } else {
+          merged.medicines = defaults.medicines;
+        }
+        return merged;
+      } catch (e) {
+        console.error("Failed to parse saved prescription", e);
+      }
+    }
+    return defaults;
   });
+
+  React.useEffect(() => {
+    localStorage.setItem('savedDoctors_v2', JSON.stringify(savedDoctors));
+  }, [savedDoctors]);
+
+  React.useEffect(() => {
+    localStorage.setItem('currentPrescription_v2', JSON.stringify(data));
+  }, [data]);
 
   const handleDoctorSelect = (doctor) => {
     setData(prev => ({

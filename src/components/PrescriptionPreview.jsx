@@ -145,6 +145,7 @@ const PrescriptionPreview = ({ data }) => {
             <tbody>
               {(data.medicines && data.medicines.length > 0) ? (
                 data.medicines.map((med, index) => {
+                  if (!med) return null;
                   // Only show row if at least one field has data
                   if (!med.name && !med.dosage && !med.timing) return null;
                   
