@@ -215,7 +215,6 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
     }
   };
 
-  const medicineTypes = ['Tablet', 'Capsule', 'Syrup', 'Injection', 'Ointment', 'Drops', 'Sachet', 'Inhaler'];
 
   const divider = <div style={{ height: '1px', background: 'var(--border)', margin: '1.5rem 0' }} />;
 
