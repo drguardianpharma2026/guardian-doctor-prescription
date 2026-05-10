@@ -1,0 +1,137 @@
+[
+  {
+    "id": "1",
+    "name": "Paracetamol 500mg",
+    "type": "TAB",
+    "composition": "Paracetamol 500mg",
+    "dosage": "1-0-1",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Analgesic"
+  },
+  {
+    "id": "2",
+    "name": "Amoxicillin 500mg",
+    "type": "CAP",
+    "composition": "Amoxicillin 500mg",
+    "dosage": "1-1-1",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Antibiotic"
+  },
+  {
+    "id": "3",
+    "name": "Cetirizine 10mg",
+    "type": "TAB",
+    "composition": "Cetirizine 10mg",
+    "dosage": "0-0-1",
+    "timing": "Bedtime / படுக்கைக்கு முன்",
+    "category": "Antihistamine"
+  },
+  {
+    "id": "4",
+    "name": "Pantoprazole 40mg",
+    "type": "TAB",
+    "composition": "Pantoprazole 40mg",
+    "dosage": "1-0-0",
+    "timing": "Empty Stomach / வெறும் வயிற்றில்",
+    "category": "Antacid"
+  },
+  {
+    "id": "5",
+    "name": "Metformin 500mg",
+    "type": "TAB",
+    "composition": "Metformin 500mg",
+    "dosage": "1-0-1",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Antidiabetic"
+  },
+  {
+    "id": "6",
+    "name": "Amlodipine 5mg",
+    "type": "TAB",
+    "composition": "Amlodipine 5mg",
+    "dosage": "1-0-0",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Antihypertensive"
+  },
+  {
+    "id": "7",
+    "name": "Azithromycin 500mg",
+    "type": "TAB",
+    "composition": "Azithromycin 500mg",
+    "dosage": "1-0-0",
+    "timing": "Before Food / உணவுக்கு முன்",
+    "category": "Antibiotic"
+  },
+  {
+    "id": "8",
+    "name": "Diclofenac Gel",
+    "type": "GEL",
+    "composition": "Diclofenac Diethylamine 1.16% w/w",
+    "dosage": "As Needed",
+    "timing": "As Needed / தேவைப்படும் போது",
+    "category": "Pain Relief"
+  },
+  {
+    "id": "9",
+    "name": "Omeprazole 20mg",
+    "type": "CAP",
+    "composition": "Omeprazole 20mg",
+    "dosage": "1-0-0",
+    "timing": "Empty Stomach / வெறும் வயிற்றில்",
+    "category": "Antacid"
+  },
+  {
+    "id": "10",
+    "name": "Dolo 650",
+    "type": "TAB",
+    "composition": "Paracetamol 650mg",
+    "dosage": "1-0-1",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Analgesic"
+  },
+  {
+    "id": "11",
+    "name": "Atorvastatin 10mg",
+    "type": "TAB",
+    "composition": "Atorvastatin 10mg",
+    "dosage": "0-0-1",
+    "timing": "Bedtime / படுக்கைக்கு முன்",
+    "category": "Statin"
+  },
+  {
+    "id": "12",
+    "name": "Ciprofloxacin 500mg",
+    "type": "TAB",
+    "composition": "Ciprofloxacin 500mg",
+    "dosage": "1-0-1",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Antibiotic"
+  },
+  {
+    "id": "13",
+    "name": "Furosemide 40mg",
+    "type": "TAB",
+    "composition": "Furosemide 40mg",
+    "dosage": "1-0-0",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Diuretic"
+  },
+  {
+    "id": "14",
+    "name": "Losartan 50mg",
+    "type": "TAB",
+    "composition": "Losartan 50mg",
+    "dosage": "1-0-0",
+    "timing": "After Food / உணவுக்கு பின்",
+    "category": "Antihypertensive"
+  },
+  {
+    "id": "15",
+    "name": "Ranitidine 150mg",
+    "type": "TAB",
+    "composition": "Ranitidine 150mg",
+    "dosage": "1-0-1",
+    "timing": "Before Food / உணவுக்கு முன்",
+    "category": "Antacid"
+  }
+]
