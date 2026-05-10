@@ -67,7 +67,7 @@ const Label = ({ children }) => (
   </label>
 );
 
-const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveDoctor, onDeleteDoctor }) => {
+const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor }) => {
   const [showDoctorDropdown, setShowDoctorDropdown] = React.useState(false);
 
   const updateField = (field, value) => {
@@ -474,7 +474,70 @@ const PrescriptionForm = ({ data, setData, savedDoctors, onDoctorSelect, onSaveD
                   <option value="LOTION">LOTION</option>
                   <option value="SPRAY">SPRAY</option>
                 </select>
-                <input placeholder="Medicine Name" value={med.name} onChange={(e) => updateMedicine(index, 'name', e.target.value)} style={{ fontWeight: 600 }} />
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input 
+                    placeholder="Medicine Name" 
+                    value={med.name} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateMedicine(index, 'name', val);
+                      updateMedicine(index, 'showSuggestions', val.length > 1);
+                    }} 
+                    style={{ fontWeight: 600, width: '100%' }} 
+                  />
+                  {med.showSuggestions && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      background: 'white',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      marginTop: '4px',
+                      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                      zIndex: 1000,
+                      maxHeight: '200px',
+                      overflowY: 'auto'
+                    }}>
+                      {adminMedicines
+                        .filter(am => am.name.toLowerCase().includes(med.name.toLowerCase()))
+                        .map(am => (
+                          <div
+                            key={am.id}
+                            onClick={() => {
+                              setData(prev => {
+                                const newMeds = [...prev.medicines];
+                                newMeds[index] = {
+                                  ...newMeds[index],
+                                  name: am.name,
+                                  type: am.type || newMeds[index].type,
+                                  composition: am.composition || newMeds[index].composition,
+                                  showSuggestions: false
+                                };
+                                return { ...prev, medicines: newMeds };
+                              });
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#f0f4ff'}
+                            onMouseLeave={(e) => e.target.style.background = 'white'}
+                            style={{
+                              padding: '8px 12px',
+                              fontSize: '0.85rem',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid #f1f5f9'
+                            }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{am.name}</span>
+                            <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: '8px' }}>({am.type})</span>
+                          </div>
+                        ))
+                      }
+                      {adminMedicines.filter(am => am.name.toLowerCase().includes(med.name.toLowerCase())).length === 0 && (
+                        <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: '#64748b' }}>No matches found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} style={{ width: '60px' }} />
                 
                 {/* Reorder Arrows */}

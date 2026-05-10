@@ -150,9 +150,6 @@ textarea:focus {
   gap: 2rem;
 }
 
-.form-section {
-  /* stays visible on desktop */
-}
 
 .preview-section {
   position: sticky;
@@ -164,13 +161,7 @@ textarea:focus {
 }
 
 /* tab-hidden / tab-active only apply on mobile */
-.tab-hidden {
-  /* noop on desktop */
-}
 
-.tab-active {
-  /* noop on desktop */
-}
 
 .medicine-card:hover {
   border-color: var(--primary) !important;
