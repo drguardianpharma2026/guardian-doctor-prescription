@@ -1,4 +1,4 @@
-const Header = () => {
+const Header = ({ onLogout }) => {
   return (
     <header className="no-print" style={{
       padding: '0 1.5rem',
@@ -41,18 +41,43 @@ const Header = () => {
         </div>
       </div>
 
-      {/* Right badge */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0.4rem 0.875rem',
-        background: 'var(--primary-subtle)',
-        borderRadius: '999px',
-        border: '1px solid rgba(21,101,192,0.15)'
-      }}>
-        <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', animation: 'pulse 2s infinite' }} />
-        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Live</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* Right badge */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.4rem 0.875rem',
+          background: 'var(--primary-subtle)',
+          borderRadius: '999px',
+          border: '1px solid rgba(21,101,192,0.15)'
+        }}>
+          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', animation: 'pulse 2s infinite' }} />
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Live</span>
+        </div>
+
+        <button 
+          onClick={onLogout}
+          style={{
+            background: '#fef2f2',
+            color: '#ef4444',
+            border: '1px solid #fee2e2',
+            padding: '8px 16px',
+            borderRadius: '10px',
+            fontSize: '0.85rem',
+            fontWeight: '700',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.background = '#fee2e2'}
+          onMouseLeave={(e) => e.target.style.background = '#fef2f2'}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Logout
+        </button>
       </div>
 
       <style>{`

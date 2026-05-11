@@ -169,6 +169,44 @@ textarea:focus {
   background: white !important;
 }
 
+.medicine-row-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr 65px auto auto;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  align-items: center;
+}
+
+@media (max-width: 600px) {
+  .medicine-row-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+  
+  .medicine-name-wrapper {
+    grid-column: 1 / -1;
+    order: -1; /* Put name first on mobile */
+  }
+  
+  .medicine-type-select {
+    grid-column: 1 / 2;
+  }
+  
+  .medicine-qty-input {
+    grid-column: 2 / 3;
+  }
+
+  .medicine-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding-top: 0.25rem;
+    border-top: 1px dashed var(--border);
+  }
+}
+
+
 /* ── Scrollbar ── */
 ::-webkit-scrollbar {
   width: 6px;

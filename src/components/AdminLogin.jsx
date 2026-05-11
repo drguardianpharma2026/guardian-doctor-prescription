@@ -9,10 +9,18 @@ const AdminLogin = ({ onLogin }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault()
+    setError('')
     
     // Using Environment Variables (Set these in Vercel Dashboard)
     const adminEmail = import.meta.env.VITE_ADMIN_EMAIL
     const adminPass = import.meta.env.VITE_ADMIN_PASSWORD
+
+    // Debugging check (won't show in production unless env is missing)
+    if (!adminEmail || !adminPass) {
+      setError('System Error: Environment Variables not configured on Live Server.')
+      console.error('VITE_ADMIN_EMAIL or VITE_ADMIN_PASSWORD is missing in environment.')
+      return
+    }
 
     if (email === adminEmail && password === adminPass) {
       onLogin(true)
@@ -23,29 +31,26 @@ const AdminLogin = ({ onLogin }) => {
   }
 
   return (
-    <div className="login-container">
-      <div className="login-visual">
-        <div className="visual-content">
-          <div className="visual-logo">G</div>
+    <div className="login-page">
+      <div className="login-illustration-side admin-theme">
+        <img src="/medical_login_illustration_1778484626201.png" alt="Admin Illustration" />
+        <div className="illustration-text">
           <h1>Guardian Admin</h1>
-          <p>Secure management portal for healthcare professionals.</p>
-        </div>
-        <div className="visual-footer">
-          © 2026 Guardian Pharma
+          <p>Secure management portal for healthcare professionals. Manage medicines, inventory, and clinic settings.</p>
         </div>
       </div>
 
-      <div className="login-form-area">
-        <div className="form-card">
-          <div className="form-header">
+      <div className="login-form-side">
+        <div className="login-form-card">
+          <div className="login-header">
             <h2>Sign In</h2>
-            <p>Access your dashboard</p>
+            <p>Access your administrator dashboard</p>
           </div>
 
           <form onSubmit={handleSubmit}>
-            {error && <div className="error-badge">{error}</div>}
+            {error && <div className="login-error">{error}</div>}
             
-            <div className="input-group">
+            <div className="login-input-group">
               <label>Administrator ID</label>
               <input 
                 type="email" 
@@ -56,7 +61,7 @@ const AdminLogin = ({ onLogin }) => {
               />
             </div>
 
-            <div className="input-group">
+            <div className="login-input-group">
               <label>Security Key</label>
               <input 
                 type="password" 
@@ -67,7 +72,7 @@ const AdminLogin = ({ onLogin }) => {
               />
             </div>
 
-            <button type="submit" className="login-btn">
+            <button type="submit" className="primary-login-btn admin-btn">
               Authenticate
             </button>
           </form>
@@ -79,108 +84,123 @@ const AdminLogin = ({ onLogin }) => {
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        .login-container {
-          min-height: 100vh;
+        .login-page {
           display: flex;
+          min-height: 100vh;
           background: white;
           font-family: 'Outfit', sans-serif;
         }
 
-        .login-visual {
+        .login-illustration-side {
           flex: 1.2;
-          background: #1565C0;
+          background: #f0fdfa;
           display: flex;
           flex-direction: column;
+          align-items: center;
           justify-content: center;
           padding: 60px;
-          color: white;
           position: relative;
           overflow: hidden;
         }
-        .login-visual::before {
-          content: '';
-          position: absolute;
-          top: -100px;
-          right: -100px;
-          width: 400px;
-          height: 400px;
-          background: rgba(255,255,255,0.05);
-          border-radius: 50%;
+        
+        .login-illustration-side.admin-theme {
+          background: #eff6ff; /* Soft blue for admin */
         }
 
-        .visual-logo {
-          width: 60px;
-          height: 60px;
-          background: white;
-          color: #1565C0;
-          border-radius: 18px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 900;
-          font-size: 2rem;
-          margin-bottom: 30px;
+        .login-illustration-side img {
+          width: 80%;
+          max-width: 500px;
+          height: auto;
+          border-radius: 30px;
+          box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+          margin-bottom: 40px;
+          z-index: 2;
         }
-        .visual-content h1 { font-size: 3rem; margin: 0 0 15px; font-weight: 800; }
-        .visual-content p { font-size: 1.2rem; opacity: 0.8; max-width: 400px; line-height: 1.6; }
-        .visual-footer { position: absolute; bottom: 40px; font-size: 0.9rem; opacity: 0.6; }
 
-        .login-form-area {
+        .illustration-text {
+          text-align: center;
+          max-width: 450px;
+          z-index: 2;
+        }
+
+        .illustration-text h1 {
+          font-size: 2.5rem;
+          color: #1e40af;
+          margin-bottom: 15px;
+          font-weight: 800;
+        }
+
+        .illustration-text p {
+          font-size: 1.1rem;
+          color: #64748b;
+          line-height: 1.6;
+        }
+
+        .login-form-side {
           flex: 1;
           display: flex;
           align-items: center;
           justify-content: center;
           padding: 40px;
-          background: #f8fafc;
+          background: #ffffff;
         }
-        .form-card { width: 100%; max-width: 400px; }
-        
-        .form-header { margin-bottom: 40px; }
-        .form-header h2 { font-size: 2rem; margin: 0 0 10px; color: #1e293b; font-weight: 800; }
-        .form-header p { color: #64748b; margin: 0; }
 
-        .error-badge {
+        .login-form-card {
+          width: 100%;
+          max-width: 420px;
+        }
+
+        .login-header { margin-bottom: 35px; }
+        .login-header h2 { font-size: 2.2rem; font-weight: 800; color: #1e293b; margin-bottom: 8px; }
+        .login-header p { color: #64748b; font-size: 1rem; }
+
+        .login-error {
           background: #fef2f2;
           color: #991b1b;
           padding: 12px;
-          border-radius: 10px;
+          border-radius: 12px;
+          margin-bottom: 20px;
           font-size: 0.9rem;
-          margin-bottom: 25px;
+          text-align: center;
           border: 1px solid #fee2e2;
           font-weight: 600;
-          text-align: center;
         }
 
-        .input-group { margin-bottom: 20px; }
-        .input-group label { display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
-        .input-group input {
+        .login-input-group { margin-bottom: 22px; }
+        .login-input-group label { display: block; font-size: 0.875rem; font-weight: 700; color: #475569; margin-bottom: 8px; }
+        .login-input-group input {
           width: 100%;
-          padding: 14px 16px;
+          padding: 14px 18px;
           border: 2px solid #e2e8f0;
-          border-radius: 12px;
+          border-radius: 14px;
           font-size: 1rem;
-          outline: none;
           transition: all 0.2s;
-          background: white;
+          outline: none;
         }
-        .input-group input:focus { border-color: #1565C0; box-shadow: 0 0 0 4px rgba(21, 101, 192, 0.1); }
+        .login-input-group input:focus {
+          border-color: #1d4ed8;
+          box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.1);
+        }
 
-        .login-btn {
+        .primary-login-btn {
           width: 100%;
-          background: #1565C0;
+          padding: 16px;
+          background: #1e40af;
           color: white;
           border: none;
-          padding: 16px;
-          border-radius: 12px;
-          font-size: 1rem;
+          border-radius: 14px;
+          font-size: 1.1rem;
           font-weight: 700;
           cursor: pointer;
-          margin-top: 10px;
-          transition: all 0.2s;
-          box-shadow: 0 10px 15px -3px rgba(21, 101, 192, 0.2);
+          transition: all 0.3s;
+          box-shadow: 0 10px 15px -3px rgba(30, 64, 175, 0.3);
         }
-        .login-btn:hover { background: #0d47a1; transform: translateY(-2px); }
-        .login-btn:active { transform: translateY(0); }
+
+        .primary-login-btn:hover {
+          background: #1e3a8a;
+          transform: translateY(-2px);
+          box-shadow: 0 15px 20px -5px rgba(30, 64, 175, 0.4);
+        }
 
         .exit-btn {
           width: 100%;
@@ -192,11 +212,10 @@ const AdminLogin = ({ onLogin }) => {
           margin-top: 30px;
           font-weight: 600;
         }
-        .exit-btn:hover { color: #1565C0; }
+        .exit-btn:hover { color: #1e40af; }
 
-        @media (max-width: 900px) {
-          .login-visual { display: none; }
-          .login-form-area { background: white; }
+        @media (max-width: 1024px) {
+          .login-illustration-side { display: none; }
         }
       ` }} />
     </div>

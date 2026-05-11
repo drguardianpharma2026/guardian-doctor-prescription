@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { databaseService } from '../services/databaseService';
 
 const DoctorItem = ({ doc, isLast, onSelect, onDelete }) => {
   const [isConfirming, setIsConfirming] = React.useState(false);
@@ -43,8 +44,8 @@ const DoctorItem = ({ doc, isLast, onSelect, onDelete }) => {
           onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+            <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
           </svg>
         </button>
       )}
@@ -72,12 +73,12 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
   const updateField = (field, value) => {
     let newData = { ...data, [field]: value };
-    
+
     // Auto-prefix Patient Name based on Gender
     if (field === 'gender' && value) {
       let name = data.patientName.trim();
       const titles = ['Mr.', 'Mrs.', 'Ms.', 'Master.', 'Miss.', 'Dr.'];
-      
+
       // Find if existing name has a title
       let baseName = name;
       for (const t of titles) {
@@ -86,14 +87,14 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           break;
         }
       }
-      
+
       let newPrefix = '';
       if (value === 'Male' || value === 'Y/M') {
         newPrefix = 'Mr. ';
       } else if (value === 'Female' || value === 'Y/F') {
         newPrefix = 'Mrs. ';
       }
-      
+
       if (newPrefix && baseName) {
         newData.patientName = newPrefix + baseName;
       } else if (newPrefix && !baseName) {
@@ -101,7 +102,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         newData.patientName = newPrefix;
       }
     }
-    
+
     setData(newData);
   };
 
@@ -109,12 +110,12 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     const today = new Date();
     const futureDate = new Date(today);
     futureDate.setDate(today.getDate() + days);
-    
+
     const year = futureDate.getFullYear();
     const month = String(futureDate.getMonth() + 1).padStart(2, '0');
     const day = String(futureDate.getDate()).padStart(2, '0');
     const formatted = `${year}-${month}-${day}`;
-    
+
     updateField('followUp', formatted);
   };
 
@@ -136,7 +137,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
   const calculateQty = (dosage, duration) => {
     if (!dosage || !duration) return '';
-    
+
     // Parse dosage (e.g., "1-0-1", "BD 1-0-1", "TDS")
     let perDay = 0;
     const dosageMatch = dosage.match(/(\d+)-(\d+)-(\d+)(?:-(\d+))?/);
@@ -146,7 +147,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     else if (dosage.includes('BD')) perDay = 2;
     else if (dosage.includes('OD')) perDay = 1;
     else if (dosage.includes('QID')) perDay = 4;
-    
+
     // Parse duration (e.g., "30 நாட்கள்", "15 days", "1 வாரம்")
     let days = 0;
     const numMatch = duration.match(/(\d+)/);
@@ -155,7 +156,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       if (duration.includes('வாரம்') || duration.toLowerCase().includes('week')) days *= 7;
       if (duration.includes('மாதம்') || duration.toLowerCase().includes('month')) days *= 30;
     }
-    
+
     return perDay * days || '';
   };
 
@@ -163,7 +164,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     setData(prevData => {
       const newMedicines = [...prevData.medicines];
       const updatedMed = { ...newMedicines[index], [field]: value };
-      
+
       // Auto-calculate Qty if dosage or duration changed
       if (field === 'dosage' || field === 'duration') {
         const calculated = calculateQty(updatedMed.dosage, updatedMed.duration);
@@ -171,17 +172,23 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           updatedMed.qty = calculated.toString();
         }
       }
-      
+
       newMedicines[index] = updatedMed;
       return { ...prevData, medicines: newMedicines };
     });
   };
 
   const addMedicine = () => {
+    const newId = Math.random().toString(36).substr(2, 9);
     setData({
       ...data,
-      medicines: [...data.medicines, { id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }]
+      medicines: [...data.medicines, { id: newId, type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false, suggestionIndex: -1 }]
     });
+    // Focus the new medicine name input after render
+    setTimeout(() => {
+      const inputs = document.querySelectorAll('input[placeholder="Medicine Name"]');
+      if (inputs.length > 0) inputs[inputs.length - 1].focus();
+    }, 50);
   };
 
   const moveMedicine = (index, direction) => {
@@ -212,6 +219,39 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
         advice: '', followUp: ''
       });
+    }
+  };
+
+  const handleMRNBlur = async () => {
+    if (!data.mrn.trim()) return;
+    
+    const patient = await databaseService.getPatient(data.mrn);
+    if (patient) {
+      setData(prev => ({
+        ...prev,
+        patientName: patient.name || prev.patientName,
+        age: patient.age || prev.age,
+        gender: patient.sex || prev.gender,
+        phone: patient.phone || prev.phone,
+        weight: patient.last_weight || prev.weight,
+        bp: patient.last_bp || prev.bp,
+        pulse: patient.last_pulse || prev.pulse,
+        temp: patient.last_temp || prev.temp
+      }));
+    }
+  };
+
+  const handleSavePatient = async () => {
+    if (!data.mrn.trim()) {
+      alert('Please enter a Patient ID (MRN) first');
+      return;
+    }
+    
+    const result = await databaseService.savePatient(data);
+    if (result) {
+      alert('Patient information saved to Neon Database!');
+    } else {
+      alert('Failed to save to database. Check your connection/configuration.');
     }
   };
 
@@ -251,6 +291,88 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     'TDS 2-2-2'
   ];
 
+  // Global Key Shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        handleSavePatient();
+      }
+      if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault();
+        document.querySelector('button[onClick*="preview"]')?.click() || alert('Switch to Preview tab to print');
+      }
+      if (e.altKey && e.key === 'a') {
+        e.preventDefault();
+        addMedicine();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [data]);
+
+  const handleMedKeyDown = (e, index, med) => {
+    const filtered = adminMedicines.filter(am => am.name.toLowerCase().includes(med.name.toLowerCase()));
+    
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const nextIndex = e.key === 'ArrowDown' 
+        ? Math.min((med.suggestionIndex || -1) + 1, filtered.length - 1)
+        : Math.max((med.suggestionIndex || -1) - 1, 0);
+      
+      updateMedicine(index, 'suggestionIndex', nextIndex);
+      
+      // Auto-scroll logic
+      setTimeout(() => {
+        const activeItem = document.getElementById(`suggestion-${index}-${nextIndex}`);
+        if (activeItem) {
+          activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      }, 10);
+    } else if (e.key === 'Enter') {
+      if (med.suggestionIndex >= 0 && filtered[med.suggestionIndex]) {
+        e.preventDefault();
+        const selected = filtered[med.suggestionIndex];
+        selectMedicine(index, selected);
+      } else if (med.name.trim()) {
+        // Move to next field
+        const row = e.target.closest('.medicine-card');
+        const inputs = Array.from(row.querySelectorAll('input, select, textarea'));
+        const nextIdx = inputs.indexOf(e.target) + 1;
+        if (nextIdx < inputs.length) {
+          inputs[nextIdx].focus();
+        } else if (index === data.medicines.length - 1) {
+          addMedicine();
+        }
+      }
+    } else if (e.key === 'Escape') {
+      updateMedicine(index, 'showSuggestions', false);
+    }
+  };
+
+  const selectMedicine = (index, am) => {
+    const typeMap = {
+      'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
+      'Drops': 'DRP', 'Ointment': 'GEL', 'Cream': 'CRM', 'Lotion': 'LOTION', 'Spray': 'SPRAY'
+    };
+    
+    setData(prev => {
+      const newMeds = [...prev.medicines];
+      const rawType = am.type || '';
+      const mappedType = typeMap[rawType] || rawType;
+      
+      newMeds[index] = {
+        ...newMeds[index],
+        name: am.name,
+        type: mappedType || newMeds[index].type,
+        composition: am.composition || newMeds[index].composition,
+        showSuggestions: false,
+        suggestionIndex: -1
+      };
+      return { ...prev, medicines: newMeds };
+    });
+  };
+
   return (
     <div className="glass-card" style={{ padding: '1.5rem' }}>
 
@@ -258,7 +380,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
         <SectionHeader
           title="Doctor Setup"
-          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}
         />
         <div style={{ position: 'relative' }}>
           <button
@@ -272,7 +394,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
             Saved
             <svg style={{ transform: showDoctorDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
               width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m6 9 6 6 6-6"/>
+              <path d="m6 9 6 6 6-6" />
             </svg>
           </button>
 
@@ -334,30 +456,50 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       {/* ══ PATIENT INFO ══ */}
       <SectionHeader
         title="Patient Info"
-        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>}
+        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
       />
 
       {/* Row 1: MRN & Date */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
         <div>
           <Label>MRN (Patient ID)</Label>
-          <input type="text" value={data.mrn} onChange={(e) => updateField('mrn', e.target.value)} placeholder="07042" />
+          <input 
+            type="text" 
+            value={data.mrn} 
+            onChange={(e) => updateField('mrn', e.target.value)} 
+            onBlur={handleMRNBlur}
+            onFocus={(e) => e.target.select()}
+            placeholder="07042" 
+          />
         </div>
         <div>
           <Label>Date</Label>
           <input type="date" value={data.date} onChange={(e) => updateField('date', e.target.value)} />
         </div>
       </div>
-      
+
       {/* Row 2: Large Patient Name & Age */}
       <div style={{ display: 'grid', gridTemplateColumns: '3.5fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
         <div>
           <Label>Patient Name</Label>
-          <input type="text" value={data.patientName} onChange={(e) => updateField('patientName', e.target.value)} placeholder="Full Name" style={{ fontWeight: 700, fontSize: '1rem' }} />
+          <input 
+            type="text" 
+            value={data.patientName} 
+            onChange={(e) => updateField('patientName', e.target.value)} 
+            onFocus={(e) => e.target.select()}
+            placeholder="Full Name" 
+            style={{ fontWeight: 700, fontSize: '1rem' }} 
+          />
         </div>
         <div>
           <Label>Age</Label>
-          <input type="text" value={data.age} onChange={(e) => updateField('age', e.target.value)} placeholder="Age" />
+          <input 
+            type="text" 
+            value={data.age} 
+            onChange={(e) => updateField('age', e.target.value)} 
+            onFocus={(e) => e.target.select()}
+            placeholder="Age" 
+          />
         </div>
       </div>
 
@@ -400,25 +542,40 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
       </div>
 
-      <button
-        onClick={handleClearPatient}
-        style={{
-          width: '100%', padding: '0.6rem', background: 'white',
-          color: '#64748b', border: '1px solid var(--border)', borderRadius: '8px',
-          fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', marginBottom: '0'
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; }}
-      >
-        🗑 Reset Patient Data
-      </button>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <button
+          onClick={handleSavePatient}
+          style={{
+            width: '100%', padding: '0.6rem', background: '#e0f2fe',
+            color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px',
+            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#bae6fd'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = '#e0f2fe'; }}
+        >
+          ☁️ Sync to Database
+        </button>
+
+        <button
+          onClick={handleClearPatient}
+          style={{
+            width: '100%', padding: '0.6rem', background: 'white',
+            color: '#64748b', border: '1px solid var(--border)', borderRadius: '8px',
+            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'white'; }}
+        >
+          🗑 Reset Form
+        </button>
+      </div>
 
       {divider}
 
       {/* ══ CLINICAL DETAILS ══ */}
       <SectionHeader
         title="Clinical Details"
-        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>}
+        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></svg>}
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
@@ -437,7 +594,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       {/* ══ MEDICATIONS ══ */}
       <SectionHeader
         title="Medications (Rx)"
-        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18.5 2.5-11 11"/><path d="M2 22 L22 2"/><rect x="2" y="14" width="8" height="8" rx="2"/><path d="M7 14v8"/><path d="M2 19h8"/><rect x="14" y="2" width="8" height="8" rx="2"/></svg>}
+        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18.5 2.5-11 11" /><path d="M2 22 L22 2" /><rect x="2" y="14" width="8" height="8" rx="2" /><path d="M7 14v8" /><path d="M2 19h8" /><rect x="14" y="2" width="8" height="8" rx="2" /></svg>}
       />
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1rem' }}>
@@ -445,20 +602,22 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           if (!med) return null;
           return (
             <div key={med.id || index} className="medicine-card" style={{
-              padding: '1rem', 
-              background: '#fff', 
+              padding: '1rem',
+              background: '#fff',
               border: '1px solid var(--border)',
-              borderRadius: '10px', 
+              borderRadius: '10px',
               boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
               transition: 'all 0.3s ease',
               position: 'relative'
             }}>
               {/* Row 1: type + name + qty + reorder + delete */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+              {/* Row 1: Responsive Grid for Type, Name, Qty and Actions */}
+              <div className="medicine-row-grid">
                 <select
+                  className="medicine-type-select"
                   value={med.type}
                   onChange={(e) => updateMedicine(index, 'type', e.target.value)}
-                  style={{ width: '110px', fontWeight: 600, fontSize: '0.8rem' }}
+                  style={{ fontWeight: 600, fontSize: '0.8rem' }}
                 >
                   <option value="">Type</option>
                   <option value="TAB">TAB (Tablets)</option>
@@ -474,16 +633,20 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                   <option value="LOTION">LOTION</option>
                   <option value="SPRAY">SPRAY</option>
                 </select>
-                <div style={{ position: 'relative', flex: 1 }}>
-                  <input 
-                    placeholder="Medicine Name" 
-                    value={med.name} 
+
+                <div className="medicine-name-wrapper" style={{ position: 'relative' }}>
+                  <input
+                    placeholder="Medicine Name"
+                    value={med.name}
                     onChange={(e) => {
                       const val = e.target.value;
                       updateMedicine(index, 'name', val);
                       updateMedicine(index, 'showSuggestions', val.length > 1);
-                    }} 
-                    style={{ fontWeight: 600, width: '100%' }} 
+                      updateMedicine(index, 'suggestionIndex', -1);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    onKeyDown={(e) => handleMedKeyDown(e, index, med)}
+                    style={{ fontWeight: 700, width: '100%', fontSize: '1rem', padding: '0.75rem' }}
                   />
                   {med.showSuggestions && (
                     <div style={{
@@ -502,33 +665,32 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                     }}>
                       {adminMedicines
                         .filter(am => am.name.toLowerCase().includes(med.name.toLowerCase()))
-                        .map(am => (
+                        .map((am, idx) => (
                           <div
+                            id={`suggestion-${index}-${idx}`}
                             key={am.id}
-                            onClick={() => {
-                              setData(prev => {
-                                const newMeds = [...prev.medicines];
-                                newMeds[index] = {
-                                  ...newMeds[index],
-                                  name: am.name,
-                                  type: am.type || newMeds[index].type,
-                                  composition: am.composition || newMeds[index].composition,
-                                  showSuggestions: false
-                                };
-                                return { ...prev, medicines: newMeds };
-                              });
-                            }}
-                            onMouseEnter={(e) => e.target.style.background = '#f0f4ff'}
-                            onMouseLeave={(e) => e.target.style.background = 'white'}
+                            onClick={() => selectMedicine(index, am)}
+                            onMouseEnter={() => updateMedicine(index, 'suggestionIndex', idx)}
                             style={{
-                              padding: '8px 12px',
-                              fontSize: '0.85rem',
+                              padding: '10px 12px',
+                              fontSize: '0.9rem',
                               cursor: 'pointer',
-                              borderBottom: '1px solid #f1f5f9'
+                              borderBottom: '1px solid #f1f5f9',
+                              background: med.suggestionIndex === idx ? '#f0f4ff' : 'white',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
                             }}
                           >
-                            <span style={{ fontWeight: 600 }}>{am.name}</span>
-                            <span style={{ fontSize: '0.7rem', color: '#64748b', marginLeft: '8px' }}>({am.type})</span>
+                            <span style={{ 
+                              color: '#2563eb', 
+                              fontWeight: 800, 
+                              visibility: med.suggestionIndex === idx ? 'visible' : 'hidden' 
+                            }}>
+                              ➔
+                            </span>
+                            <span style={{ fontWeight: 600, flex: 1 }}>{am.name}</span>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>({am.type})</span>
                           </div>
                         ))
                       }
@@ -538,24 +700,33 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                     </div>
                   )}
                 </div>
-                <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} style={{ width: '60px' }} />
-                
-                {/* Reorder Arrows */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <button type="button" onClick={() => moveMedicine(index, -1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === 0}>▲</button>
-                  <button type="button" onClick={() => moveMedicine(index, 1)} style={{ padding: '2px', fontSize: '10px', height: '18px', background: 'none', border: '1px solid #ddd', cursor: 'pointer' }} disabled={index === data.medicines.length - 1}>▼</button>
-                </div>
 
-                <button
-                  type="button"
-                  onClick={() => removeMedicine(index)}
-                  style={{
-                    background: 'none', border: 'none', color: '#ff4d4d',
-                    cursor: 'pointer', padding: '0.5rem', display: 'flex'
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
+                <input 
+                  className="medicine-qty-input" 
+                  placeholder="Qty" 
+                  value={med.qty} 
+                  onChange={(e) => updateMedicine(index, 'qty', e.target.value)} 
+                  style={{ fontWeight: 600 }}
+                />
+
+                <div className="medicine-actions">
+                  {/* Reorder Arrows */}
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button type="button" onClick={() => moveMedicine(index, -1)} style={{ padding: '4px 8px', fontSize: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer' }} disabled={index === 0}>▲</button>
+                    <button type="button" onClick={() => moveMedicine(index, 1)} style={{ padding: '4px 8px', fontSize: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer' }} disabled={index === data.medicines.length - 1}>▼</button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeMedicine(index)}
+                    style={{
+                      background: '#fee2e2', border: 'none', color: '#ef4444',
+                      cursor: 'pointer', padding: '6px', display: 'flex', borderRadius: '6px'
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                  </button>
+                </div>
               </div>
 
               {/* Row 2: composition */}
@@ -570,30 +741,30 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
                 <div style={{ position: 'relative' }}>
                   <Label>Dosage</Label>
-                  <div 
+                  <div
                     onClick={() => updateMedicine(index, 'showDosageTips', true)}
-                    style={{ 
-                    display: 'flex', 
-                    border: '1px solid var(--border)', 
-                    borderRadius: '8px', 
-                    background: 'white',
-                    transition: 'border-color 0.2s',
-                    position: 'relative'
-                  }}>
-                    <input 
-                      placeholder="1-0-1" 
-                      value={med.dosage} 
-                      onChange={(e) => updateMedicine(index, 'dosage', e.target.value)} 
+                    style={{
+                      display: 'flex',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      background: 'white',
+                      transition: 'border-color 0.2s',
+                      position: 'relative'
+                    }}>
+                    <input
+                      placeholder="1-0-1"
+                      value={med.dosage}
+                      onChange={(e) => updateMedicine(index, 'dosage', e.target.value)}
                       style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
                     />
                     <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         updateMedicine(index, 'showDosageTips', !med.showDosageTips);
                       }}
-                      style={{ 
+                      style={{
                         width: '40px',
                         background: med.showDosageTips ? '#2563eb' : '#f8faff',
                         border: 'none',
@@ -606,24 +777,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                         transition: 'all 0.2s'
                       }}
                     >
-                      <svg 
+                      <svg
                         style={{ transform: med.showDosageTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                       >
-                        <polyline points="6 9 12 15 18 9"/>
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
 
                     {med.showDosageTips && (
                       <>
                         <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDosageTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                        <div style={{ 
-                          position: 'absolute', 
-                          top: '100%', 
-                          left: 0, 
-                          right: 0, 
-                          background: 'white', 
-                          border: '1px solid var(--border)', 
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          background: 'white',
+                          border: '1px solid var(--border)',
                           borderRadius: '8px',
                           marginTop: '4px',
                           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
@@ -660,29 +831,29 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
                 <div style={{ position: 'relative' }}>
                   <Label>Timing</Label>
-                  <div 
+                  <div
                     onClick={() => updateMedicine(index, 'showTimingTips', true)}
-                    style={{ 
-                    display: 'flex', 
-                    border: '1px solid var(--border)', 
-                    borderRadius: '8px', 
-                    background: 'white',
-                    position: 'relative'
-                  }}>
-                    <input 
-                      placeholder="After Meal" 
-                      value={med.timing} 
-                      onChange={(e) => updateMedicine(index, 'timing', e.target.value)} 
+                    style={{
+                      display: 'flex',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      background: 'white',
+                      position: 'relative'
+                    }}>
+                    <input
+                      placeholder="After Meal"
+                      value={med.timing}
+                      onChange={(e) => updateMedicine(index, 'timing', e.target.value)}
                       style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
                     />
                     <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         updateMedicine(index, 'showTimingTips', !med.showTimingTips);
                       }}
-                      style={{ 
+                      style={{
                         width: '40px',
                         background: med.showTimingTips ? '#16a34a' : '#f0fdf4',
                         border: 'none',
@@ -695,24 +866,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                         transition: 'all 0.2s'
                       }}
                     >
-                      <svg 
+                      <svg
                         style={{ transform: med.showTimingTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                       >
-                        <polyline points="6 9 12 15 18 9"/>
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
 
                     {med.showTimingTips && (
                       <>
                         <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showTimingTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                        <div style={{ 
-                          position: 'absolute', 
-                          top: '100%', 
-                          left: 0, 
-                          right: 0, 
-                          background: 'white', 
-                          border: '1px solid var(--border)', 
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          background: 'white',
+                          border: '1px solid var(--border)',
                           borderRadius: '8px',
                           marginTop: '4px',
                           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
@@ -749,29 +920,29 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
                 <div style={{ position: 'relative' }}>
                   <Label>Schedule</Label>
-                  <div 
+                  <div
                     onClick={() => updateMedicine(index, 'showScheduleTips', true)}
-                    style={{ 
-                    display: 'flex', 
-                    border: '1px solid var(--border)', 
-                    borderRadius: '8px', 
-                    background: 'white',
-                    position: 'relative'
-                  }}>
-                    <input 
-                      placeholder="Daily" 
-                      value={med.schedule} 
-                      onChange={(e) => updateMedicine(index, 'schedule', e.target.value)} 
+                    style={{
+                      display: 'flex',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      background: 'white',
+                      position: 'relative'
+                    }}>
+                    <input
+                      placeholder="Daily"
+                      value={med.schedule}
+                      onChange={(e) => updateMedicine(index, 'schedule', e.target.value)}
                       style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
                     />
                     <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         updateMedicine(index, 'showScheduleTips', !med.showScheduleTips);
                       }}
-                      style={{ 
+                      style={{
                         width: '40px',
                         background: med.showScheduleTips ? '#9333ea' : '#faf5ff',
                         border: 'none',
@@ -784,24 +955,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                         transition: 'all 0.2s'
                       }}
                     >
-                      <svg 
+                      <svg
                         style={{ transform: med.showScheduleTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                       >
-                        <polyline points="6 9 12 15 18 9"/>
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
 
                     {med.showScheduleTips && (
                       <>
                         <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showScheduleTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                        <div style={{ 
-                          position: 'absolute', 
-                          top: '100%', 
-                          left: 0, 
-                          right: 0, 
-                          background: 'white', 
-                          border: '1px solid var(--border)', 
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          background: 'white',
+                          border: '1px solid var(--border)',
                           borderRadius: '8px',
                           marginTop: '4px',
                           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
@@ -838,29 +1009,29 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
                 <div style={{ position: 'relative' }}>
                   <Label>Duration</Label>
-                  <div 
+                  <div
                     onClick={() => updateMedicine(index, 'showDurationTips', true)}
-                    style={{ 
-                    display: 'flex', 
-                    border: '1px solid var(--border)', 
-                    borderRadius: '8px', 
-                    background: 'white',
-                    position: 'relative'
-                  }}>
-                    <input 
-                      placeholder="30 நாட்கள்" 
-                      value={med.duration} 
-                      onChange={(e) => updateMedicine(index, 'duration', e.target.value)} 
+                    style={{
+                      display: 'flex',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      background: 'white',
+                      position: 'relative'
+                    }}>
+                    <input
+                      placeholder="30 நாட்கள்"
+                      value={med.duration}
+                      onChange={(e) => updateMedicine(index, 'duration', e.target.value)}
                       style={{ border: 'none', borderRadius: '8px 0 0 8px', flex: 1 }}
                     />
                     <div style={{ width: '1px', background: 'var(--border)' }}></div>
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         updateMedicine(index, 'showDurationTips', !med.showDurationTips);
                       }}
-                      style={{ 
+                      style={{
                         width: '40px',
                         background: med.showDurationTips ? '#ea580c' : '#fff7ed',
                         border: 'none',
@@ -873,24 +1044,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                         transition: 'all 0.2s'
                       }}
                     >
-                      <svg 
+                      <svg
                         style={{ transform: med.showDurationTips ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
                         width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
                       >
-                        <polyline points="6 9 12 15 18 9"/>
+                        <polyline points="6 9 12 15 18 9" />
                       </svg>
                     </button>
 
                     {med.showDurationTips && (
                       <>
                         <div onClick={(e) => { e.stopPropagation(); updateMedicine(index, 'showDurationTips', false); }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} />
-                        <div style={{ 
-                          position: 'absolute', 
-                          top: '100%', 
-                          left: 0, 
-                          right: 0, 
-                          background: 'white', 
-                          border: '1px solid var(--border)', 
+                        <div style={{
+                          position: 'absolute',
+                          top: '100%',
+                          left: 0,
+                          right: 0,
+                          background: 'white',
+                          border: '1px solid var(--border)',
                           borderRadius: '8px',
                           marginTop: '4px',
                           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
@@ -952,7 +1123,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       {/* ══ ADVICE & FOLLOW UP ══ */}
       <SectionHeader
         title="Advice & Follow-up"
-        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>}
+        icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>}
       />
 
       <div style={{ marginBottom: '0.75rem' }}>
@@ -963,10 +1134,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border)' }}>
         <Label>Follow-up Date</Label>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-          <input 
-            type="date" 
-            value={data.followUp} 
-            onChange={(e) => updateField('followUp', e.target.value)} 
+          <input
+            type="date"
+            value={data.followUp}
+            onChange={(e) => updateField('followUp', e.target.value)}
             style={{ flex: 1 }}
           />
         </div>
@@ -1014,10 +1185,42 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
               gap: '4px'
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
             Auto (from meds)
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: '2rem' }}>
+        <button
+          onClick={handleSavePatient}
+          style={{
+            width: '100%',
+            padding: '1rem',
+            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '12px',
+            fontSize: '1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.75rem',
+            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
+            transition: 'transform 0.2s, box-shadow 0.2s'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 15px rgba(37, 99, 235, 0.35)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.25)'; }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+            <polyline points="17 21 17 13 7 13 7 21" />
+            <polyline points="7 3 7 8 15 8" />
+          </svg>
+          SAVE PATIENT DATA TO NEON
+        </button>
       </div>
 
     </div>

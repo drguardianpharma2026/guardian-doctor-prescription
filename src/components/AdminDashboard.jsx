@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('medicines')
   const [medicines, setMedicines] = useState([])
+  const [users, setUsers] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [clinicSettings, setClinicSettings] = useState({
     name: 'THULIR MULTISPECIALITY HOSPITAL',
@@ -24,6 +25,12 @@ const AdminDashboard = ({ onLogout }) => {
     const savedSettings = localStorage.getItem('admin_clinic_settings')
     if (savedSettings) {
       setClinicSettings(JSON.parse(savedSettings))
+    }
+
+    // Load registered doctors
+    const savedUsers = localStorage.getItem('nexus_rx_users')
+    if (savedUsers) {
+      setUsers(JSON.parse(savedUsers))
     }
   }, [])
 
@@ -61,9 +68,27 @@ const AdminDashboard = ({ onLogout }) => {
     alert('Settings Saved Successfully')
   }
 
+  const handleUpdateUser = (id, field, value) => {
+    const newList = users.map(u => u.id === id ? { ...u, [field]: value } : u)
+    setUsers(newList)
+    localStorage.setItem('nexus_rx_users', JSON.stringify(newList))
+  }
+
+  const handleDeleteUser = (id) => {
+    if (window.confirm('Are you sure you want to delete this doctor account?')) {
+      const newList = users.filter(u => u.id !== id)
+      setUsers(newList)
+      localStorage.setItem('nexus_rx_users', JSON.stringify(newList))
+    }
+  }
+
   const filteredMedicines = medicines.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    m.category.toLowerCase().includes(searchTerm.toLowerCase())
+    m.name.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const filteredUsers = users.filter(u => 
+    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.phone?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const exportData = () => {
@@ -89,6 +114,9 @@ const AdminDashboard = ({ onLogout }) => {
           <button className={activeTab === 'medicines' ? 'active' : ''} onClick={() => setActiveTab('medicines')}>
             <span className="icon">📂</span> Medicine Master
           </button>
+          <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>
+            <span className="icon">👤</span> Doctor Accounts
+          </button>
           <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>
             <span className="icon">⚙️</span> Clinic Settings
           </button>
@@ -105,20 +133,28 @@ const AdminDashboard = ({ onLogout }) => {
       <main className="excel-main">
         <header className="excel-header">
           <div className="header-left">
-            <h1>{activeTab === 'medicines' ? 'Medicine Database Grid' : 'System Configuration'}</h1>
-            <p>{medicines.length} Rows found</p>
+            <h1>
+              {activeTab === 'medicines' ? 'Medicine Database Grid' : 
+               activeTab === 'users' ? 'Doctor Management Console' : 
+               'System Configuration'}
+            </h1>
+            <p>
+              {activeTab === 'medicines' ? `${medicines.length} Rows found` : 
+               activeTab === 'users' ? `${users.length} Registered Doctors` : 
+               'Global Settings'}
+            </p>
           </div>
           
-          {activeTab === 'medicines' && (
+          {(activeTab === 'medicines' || activeTab === 'users') && (
             <div className="header-right">
               <div className="excel-search">
                 <input 
-                  placeholder="Quick Search (Ctrl + F)..." 
+                  placeholder={`Search ${activeTab === 'medicines' ? 'medicines' : 'doctors'}...`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button onClick={handleAddMedicine} className="excel-add-btn">+ Add New Row</button>
+              {activeTab === 'medicines' && <button onClick={handleAddMedicine} className="excel-add-btn">+ Add New Row</button>}
             </div>
           )}
         </header>
@@ -133,7 +169,6 @@ const AdminDashboard = ({ onLogout }) => {
                     <th>Medicine Name</th>
                     <th style={{ width: '120px' }}>Type</th>
                     <th>Composition / Dosage</th>
-                    <th>Category</th>
                     <th style={{ width: '60px', textAlign: 'center' }}>Del</th>
                   </tr>
                 </thead>
@@ -168,18 +203,90 @@ const AdminDashboard = ({ onLogout }) => {
                           placeholder="e.g. 500mg"
                         />
                       </td>
-                      <td>
-                        <input 
-                          value={med.category} 
-                          onChange={(e) => handleUpdateMed(med.id, 'category', e.target.value)}
-                          placeholder="Category..."
-                        />
-                      </td>
                       <td style={{ textAlign: 'center' }}>
                         <button onClick={() => handleDeleteMed(med.id)} className="excel-del-row">×</button>
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {activeTab === 'users' && (
+            <div className="grid-container">
+              <table className="excel-table">
+                <thead>
+                  <tr>
+                    <th className="row-num-col">#</th>
+                    <th>Full Name</th>
+                    <th>Qualification</th>
+                    <th>Consultant Role</th>
+                    <th>Reg. No</th>
+                    <th>Mobile</th>
+                    <th>Password</th>
+                    <th style={{ width: '60px', textAlign: 'center' }}>Del</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredUsers.map((user, idx) => (
+                    <tr key={user.id}>
+                      <td className="row-num-col">{idx + 1}</td>
+                      <td>
+                        <input 
+                          value={user.name} 
+                          onChange={(e) => handleUpdateUser(user.id, 'name', e.target.value)}
+                          placeholder="Doctor Name..."
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          value={user.qualification || ''} 
+                          onChange={(e) => handleUpdateUser(user.id, 'qualification', e.target.value)}
+                          placeholder="MBBS, MD..."
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          value={user.consultant || ''} 
+                          onChange={(e) => handleUpdateUser(user.id, 'consultant', e.target.value)}
+                          placeholder="Consultant..."
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          value={user.regNo || ''} 
+                          onChange={(e) => handleUpdateUser(user.id, 'regNo', e.target.value)}
+                          placeholder="Reg No..."
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          value={user.phone} 
+                          onChange={(e) => handleUpdateUser(user.id, 'phone', e.target.value)}
+                          placeholder="Mobile Number..."
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          type="text"
+                          value={user.password} 
+                          onChange={(e) => handleUpdateUser(user.id, 'password', e.target.value)}
+                          placeholder="Password..."
+                        />
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button onClick={() => handleDeleteUser(user.id)} className="excel-del-row">×</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan="5" style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                        No doctors registered yet.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

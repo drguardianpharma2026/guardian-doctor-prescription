@@ -161,11 +161,6 @@ const PrescriptionPreview = ({ data }) => {
                             {med.name || '---'}
                           </span>
                         </div>
-                        {med.composition && (
-                          <div style={{ fontSize: '7.5pt', color: '#333', textTransform: 'uppercase', marginTop: '2pt' }}>
-                            Composition: {med.composition}
-                          </div>
-                        )}
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 900, color: '#B71C1C', fontSize: '10.5pt' }}>
                         {med.dosage ? med.dosage.replace(/OD|BD|TDS|MOR/g, '').trim() : ''}
