@@ -3,9 +3,8 @@ import { getDb, cors } from './db.js';
 export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
-  const sql = getDb();
-
   try {
+    const sql = getDb();
     if (req.method === 'GET') {
       const result = await sql`SELECT * FROM clinic_settings WHERE id = 1 LIMIT 1`;
       return res.status(200).json(result[0] || null);

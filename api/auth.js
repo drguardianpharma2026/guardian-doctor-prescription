@@ -3,9 +3,8 @@ import { getDb, cors } from './db.js';
 export default async function handler(req, res) {
   cors(res);
   if (req.method === 'OPTIONS') return res.status(200).end();
-  const sql = getDb();
-
   try {
+    const sql = getDb();
     if (req.method === 'POST') {
       const { action, name, phone, password, qualification, consultant, reg_no } = req.body;
 
