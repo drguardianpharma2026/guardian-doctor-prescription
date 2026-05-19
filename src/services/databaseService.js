@@ -44,6 +44,10 @@ export const databaseService = {
     return api(`/api/patients?mrn=${encodeURIComponent(mrn)}`);
   },
 
+  async getAllPatients() {
+    return api('/api/patients');
+  },
+
   // ── Medicines ──
   async getMedicines() {
     return api('/api/medicines');

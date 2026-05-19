@@ -300,7 +300,18 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
   }, [data]);
 
   const handleMedKeyDown = (e, index, med) => {
-    const filtered = adminMedicines.filter(am => am.name.toLowerCase().includes(med.name.toLowerCase()));
+    const typeMap = {
+      'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
+      'Drops': 'DRP', 'Ointment': 'GEL', 'Cream': 'CRM', 'Lotion': 'LOTION', 'Spray': 'SPRAY'
+    };
+    const filtered = adminMedicines.filter(am => {
+      const nameMatch = am.name.toLowerCase().includes(med.name.toLowerCase()) ||
+        (am.composition && am.composition.toLowerCase().includes(med.name.toLowerCase()));
+      if (!nameMatch) return false;
+      if (!med.type) return true;
+      const mappedAmType = typeMap[am.type] || am.type;
+      return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
+    });
     
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -612,6 +623,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                 <div className="medicine-name-wrapper" style={{ position: 'relative' }}>
                   <input
                     placeholder="Medicine Name"
+                    autoComplete="off"
                     value={med.name}
                     onChange={(e) => {
                       const val = e.target.value;
@@ -639,9 +651,20 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                       overflowY: 'auto'
                     }}>
                       {adminMedicines
-                        .filter(am => am.name.toLowerCase().includes(med.name.toLowerCase()))
+                        .filter(am => {
+                          const nameMatch = am.name.toLowerCase().includes(med.name.toLowerCase()) ||
+                            (am.composition && am.composition.toLowerCase().includes(med.name.toLowerCase()));
+                          if (!nameMatch) return false;
+                          if (!med.type) return true;
+                          const typeMap = {
+                            'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
+                            'Drops': 'DRP', 'Ointment': 'GEL', 'Cream': 'CRM', 'Lotion': 'LOTION', 'Spray': 'SPRAY'
+                          };
+                          const mappedAmType = typeMap[am.type] || am.type;
+                          return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
+                        })
                         .map((am, idx) => (
-                          <div
+                           <div
                             id={`suggestion-${index}-${idx}`}
                             key={am.id}
                             onClick={() => selectMedicine(index, am)}
@@ -664,12 +687,30 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                             }}>
                               ➔
                             </span>
-                            <span style={{ fontWeight: 600, flex: 1 }}>{am.name}</span>
+                            <span style={{ fontWeight: 600, flex: 1 }}>
+                              {am.name}
+                            </span>
+                            {am.composition && (
+                              <span style={{ fontSize: '0.8rem', color: '#0284c7', paddingRight: '8px' }}>
+                                {am.composition}
+                              </span>
+                            )}
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>({am.type})</span>
                           </div>
                         ))
                       }
-                      {adminMedicines.filter(am => am.name.toLowerCase().includes(med.name.toLowerCase())).length === 0 && (
+                      {adminMedicines.filter(am => {
+                        const nameMatch = am.name.toLowerCase().includes(med.name.toLowerCase()) ||
+                          (am.composition && am.composition.toLowerCase().includes(med.name.toLowerCase()));
+                        if (!nameMatch) return false;
+                        if (!med.type) return true;
+                        const typeMap = {
+                          'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
+                          'Drops': 'DRP', 'Ointment': 'GEL', 'Cream': 'CRM', 'Lotion': 'LOTION', 'Spray': 'SPRAY'
+                        };
+                        const mappedAmType = typeMap[am.type] || am.type;
+                        return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
+                      }).length === 0 && (
                         <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: '#64748b' }}>No matches found</div>
                       )}
                     </div>

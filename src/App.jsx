@@ -72,10 +72,8 @@ function App() {
         }
 
         const medicines = await databaseService.getMedicines();
-        if (medicines && medicines.length > 0) {
+        if (medicines) {
           setAdminMedicines(medicines);
-        } else {
-          import('./data/products.json').then(res => setAdminMedicines(res.default)).catch(() => {});
         }
       } catch (err) {
         console.error('Failed to fetch master data:', err);
