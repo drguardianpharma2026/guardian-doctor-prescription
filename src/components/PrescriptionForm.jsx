@@ -299,6 +299,39 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [data]);
 
+  // Live auto-populate patient details on MRN change
+  useEffect(() => {
+    const trimmed = data.mrn?.trim();
+    if (!trimmed) return;
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const patient = await databaseService.getPatient(trimmed);
+        if (patient) {
+          setData(prev => {
+            // Only update if the MRN matches the current input
+            if (prev.mrn?.trim() !== trimmed) return prev;
+            return {
+              ...prev,
+              patientName: patient.name || prev.patientName,
+              age: patient.age || prev.age,
+              gender: patient.sex || prev.gender,
+              phone: patient.phone || prev.phone,
+              weight: patient.last_weight || prev.weight,
+              bp: patient.last_bp || prev.bp,
+              pulse: patient.last_pulse || prev.pulse,
+              temp: patient.last_temp || prev.temp
+            };
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching patient live:', err);
+      }
+    }, 150); // Debounce to protect DB and feel instant!
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [data.mrn]);
+
   const handleMedKeyDown = (e, index, med) => {
     const typeMap = {
       'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
