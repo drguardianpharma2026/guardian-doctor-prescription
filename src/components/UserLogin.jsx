@@ -88,6 +88,10 @@ const UserLogin = ({ onLogin }) => {
           <div className="signup-prompt">
             Don't have an account? <Link to="/signup">Sign Up</Link>
           </div>
+
+          <div className="signup-prompt" style={{ marginTop: '10px' }}>
+            <Link to="/admin-login" style={{ color: '#64748b', fontSize: '0.8rem', opacity: 0.7 }}>🔐 System Admin Portal</Link>
+          </div>
         </div>
       </div>
 

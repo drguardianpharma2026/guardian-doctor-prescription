@@ -15,83 +15,74 @@ function App() {
   const [isUserAuthenticated, setIsUserAuthenticated] = useState(() => localStorage.getItem('is_user_authenticated') === 'true')
 
   // Load clinic settings
-  const [clinicSettings, setClinicSettings] = useState(() => {
-    const saved = localStorage.getItem('admin_clinic_settings')
-    return saved ? JSON.parse(saved) : {
-      name: 'THULIR MULTISPECIALITY HOSPITAL',
-      phone: '04366 222108, 70949 19494, 70949 29494'
-    }
+  const [clinicSettings, setClinicSettings] = useState({
+    name: 'THULIR MULTISPECIALITY HOSPITAL',
+    phone: '04366 222108, 70949 19494, 70949 29494'
   })
 
   // Load Admin Medicines for Autocomplete
   const [adminMedicines, setAdminMedicines] = useState([])
-  useEffect(() => {
-    const savedMeds = localStorage.getItem('admin_medicines')
-    if (savedMeds) {
-      setAdminMedicines(JSON.parse(savedMeds))
-    } else {
-      import('./data/products.json').then(data => {
-        setAdminMedicines(data.default)
-      }).catch(() => setAdminMedicines([]))
-    }
-  }, [isAdmin]) // Reload when admin changes something
-
+  
   // Load saved doctors
-  const [savedDoctors, setSavedDoctors] = useState(() => {
-    const saved = localStorage.getItem('savedDoctors_v2')
-    return saved ? JSON.parse(saved) : [
-      {
-        name: 'Dr. S. BASHEER AHMED',
-        qualifications: 'MS (ORTHO)',
-        role: 'Consultant Trauma, Joint Replacement & Spine Surgeon',
-        regNo: '93179'
-      }
-    ]
+  const [savedDoctors, setSavedDoctors] = useState([])
+
+  const [data, setData] = useState({
+    clinicName: '',
+    phone1: '',
+    mrn: '',
+    visitNo: '',
+    date: new Date().toISOString().split('T')[0],
+    patientName: '',
+    age: '',
+    gender: '',
+    phone: '',
+    complaints: '',
+    diagnosis: '',
+    medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
+    advice: '',
+    followUp: '',
+    weight: '',
+    bp: '',
+    pulse: '',
+    temp: '',
+    doctorName: '',
+    doctorQualifications: '',
+    doctorRole: '',
+    doctorRegNo: ''
   })
 
-  const [data, setData] = useState(() => {
-    const defaults = {
-      clinicName: clinicSettings.name,
-      phone1: clinicSettings.phone,
-      mrn: '',
-      visitNo: '',
-      date: new Date().toISOString().split('T')[0],
-      patientName: '',
-      age: '',
-      gender: '',
-      phone: '',
-      complaints: '',
-      diagnosis: '',
-      medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
-      advice: '',
-      followUp: '',
-      weight: '',
-      bp: '',
-      pulse: '',
-      temp: '',
-      doctorName: savedDoctors[0]?.name || '',
-      doctorQualifications: savedDoctors[0]?.qualifications || '',
-      doctorRole: savedDoctors[0]?.role || '',
-      doctorRegNo: savedDoctors[0]?.regNo || ''
-    }
-
-    const saved = localStorage.getItem('currentPrescription_v2')
-    if (saved) {
+  // Fetch all master data from Neon on mount
+  useEffect(() => {
+    const fetchMasterData = async () => {
       try {
-        const parsed = JSON.parse(saved)
-        const merged = { ...defaults, ...parsed }
-        if (Array.isArray(merged.medicines)) {
-          merged.medicines = merged.medicines.filter(m => m !== null && typeof m === 'object')
-        } else {
-          merged.medicines = defaults.medicines
+        const settings = await databaseService.getSettings();
+        if (settings) setClinicSettings(settings);
+
+        const doctors = await databaseService.getSavedDoctors();
+        if (doctors && doctors.length > 0) {
+          setSavedDoctors(doctors);
+          // Set initial doctor if not set
+          setData(prev => ({
+            ...prev,
+            doctorName: doctors[0].name,
+            doctorQualifications: doctors[0].qualifications,
+            doctorRole: doctors[0].role,
+            doctorRegNo: doctors[0].regNo || ''
+          }));
         }
-        return merged
-      } catch (e) {
-        console.error("Failed to parse saved prescription", e)
+
+        const medicines = await databaseService.getMedicines();
+        if (medicines && medicines.length > 0) {
+          setAdminMedicines(medicines);
+        } else {
+          import('./data/products.json').then(res => setAdminMedicines(res.default)).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Failed to fetch master data:', err);
       }
-    }
-    return defaults
-  })
+    };
+    fetchMasterData();
+  }, []);
 
   // Update data when clinic settings change
   useEffect(() => {
@@ -101,14 +92,6 @@ function App() {
       phone1: clinicSettings.phone
     }))
   }, [clinicSettings])
-
-  useEffect(() => {
-    localStorage.setItem('savedDoctors_v2', JSON.stringify(savedDoctors))
-  }, [savedDoctors])
-
-  useEffect(() => {
-    localStorage.setItem('currentPrescription_v2', JSON.stringify(data))
-  }, [data])
 
   useEffect(() => {
     localStorage.setItem('is_admin_v2', isAdmin)
@@ -123,24 +106,26 @@ function App() {
       if (loggedUser) {
         const user = JSON.parse(loggedUser)
         
-        // Update current prescription data
         setData(prev => ({
           ...prev,
           doctorName: user.name || prev.doctorName,
           doctorQualifications: user.qualification || prev.doctorQualifications,
           doctorRole: user.consultant || prev.doctorRole,
-          doctorRegNo: user.regNo || prev.doctorRegNo
+          doctorRegNo: user.reg_no || user.regNo || prev.doctorRegNo
         }))
 
-        // Add to saved doctors list if not already there
+        // Ensure logged in doctor is in the list
         setSavedDoctors(prev => {
           if (prev.find(doc => doc.name === user.name)) return prev
-          return [{
+          const newDoc = {
             name: user.name,
             qualifications: user.qualification || '',
             role: user.consultant || '',
-            regNo: user.regNo || ''
-          }, ...prev]
+            reg_no: user.reg_no || user.regNo || ''
+          };
+          // Also save this doctor to DB so it persists
+          databaseService.saveDoctor(newDoc).catch(console.error);
+          return [newDoc, ...prev]
         })
       }
     }
@@ -156,6 +141,7 @@ function App() {
   const handleUserLogout = () => {
     setIsUserAuthenticated(false)
     localStorage.removeItem('is_user_authenticated')
+    localStorage.removeItem('logged_in_user')
   }
 
   const handleDoctorSelect = (doctor) => {
@@ -164,24 +150,47 @@ function App() {
       doctorName: doctor.name,
       doctorQualifications: doctor.qualifications,
       doctorRole: doctor.role,
-      doctorRegNo: doctor.regNo || ''
+      doctorRegNo: doctor.reg_no || doctor.regNo || ''
     }))
   }
 
-  const handleSaveDoctor = (newDoctor) => {
+  const handleSaveDoctor = async (newDoctor) => {
     setSavedDoctors(prev => {
       if (prev.find(doc => doc.name === newDoctor.name)) return prev
       return [...prev, newDoctor]
     })
+    try {
+      await databaseService.saveDoctor(newDoctor);
+    } catch (err) {
+      console.error('Failed to save doctor to DB:', err);
+    }
   }
 
-  const handleDeleteDoctor = (doctorToDelete) => {
+  const handleDeleteDoctor = async (doctorToDelete) => {
     setSavedDoctors(prev => prev.filter(doc => doc.name !== doctorToDelete.name))
+    try {
+      await databaseService.deleteDoctor(doctorToDelete.name);
+    } catch (err) {
+      console.error('Failed to delete doctor from DB:', err);
+    }
   }
 
-  const handleAutoSave = async () => {
+  const handleAutoSave = async (isManual = false) => {
     if (data.mrn) {
-      await databaseService.savePatient(data);
+      try {
+        await databaseService.savePatient(data);
+        await databaseService.savePrescription(data);
+        if (isManual) {
+          alert('Saved to Neon Database successfully!');
+        }
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+        if (isManual) {
+          alert(`Failed to save to database: ${err.message}\n\nPlease check if you have created the tables in Neon correctly.`);
+        }
+      }
+    } else if (isManual) {
+      alert('Please enter a Patient ID (MRN) first.');
     }
   }
 
@@ -268,6 +277,10 @@ function App() {
                   <div style={{ marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 style={{ fontSize: '1.25rem' }}>Create Prescription</h2>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => handleAutoSave(true)} className="print-btn" style={{ background: '#2563eb' }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Save
+                      </button>
                       <button onClick={handleShare} className="print-btn" style={{ background: '#43a047' }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.41" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                         Share
@@ -286,6 +299,7 @@ function App() {
                     onDoctorSelect={handleDoctorSelect}
                     onSaveDoctor={handleSaveDoctor}
                     onDeleteDoctor={handleDeleteDoctor}
+                    onSave={() => handleAutoSave(true)}
                   />
                 </section>
 
@@ -293,6 +307,10 @@ function App() {
                   <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <h2 className="no-print" style={{ fontSize: '1.25rem' }}>Live Preview</h2>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => handleAutoSave(true)} className="print-btn no-print" style={{ background: '#2563eb' }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        Save
+                      </button>
                       <button onClick={handleShare} className="print-btn no-print" style={{ background: '#43a047' }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.41" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                         Share

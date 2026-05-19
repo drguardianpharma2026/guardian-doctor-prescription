@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { databaseService } from '../services/databaseService'
 
 const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('medicines')
@@ -10,33 +11,46 @@ const AdminDashboard = ({ onLogout }) => {
     name: 'THULIR MULTISPECIALITY HOSPITAL',
     phone: '04366 222108, 70949 19494, 70949 29494'
   })
+  const [isSyncing, setIsSyncing] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
-    const savedMeds = localStorage.getItem('admin_medicines')
-    if (savedMeds) {
-      setMedicines(JSON.parse(savedMeds))
-    } else {
-      import('../data/products.json').then(data => {
-        setMedicines(data.default)
-      }).catch(() => setMedicines([]))
-    }
+    const fetchAllData = async () => {
+      setIsSyncing(true);
+      try {
+        // Load Medicines
+        const dbMeds = await databaseService.getMedicines();
+        if (dbMeds && dbMeds.length > 0) {
+          setMedicines(dbMeds);
+        } else {
+          // Fallback to local JSON if DB is empty
+          import('../data/products.json').then(data => {
+            setMedicines(data.default);
+          }).catch(() => setMedicines([]));
+        }
 
-    const savedSettings = localStorage.getItem('admin_clinic_settings')
-    if (savedSettings) {
-      setClinicSettings(JSON.parse(savedSettings))
-    }
+        // Load Clinic Settings
+        const dbSettings = await databaseService.getSettings();
+        if (dbSettings) {
+          setClinicSettings(dbSettings);
+        }
 
-    // Load registered doctors
-    const savedUsers = localStorage.getItem('nexus_rx_users')
-    if (savedUsers) {
-      setUsers(JSON.parse(savedUsers))
-    }
+        // Load Registered Doctors
+        const dbUsers = await databaseService.getUsers();
+        if (dbUsers) {
+          setUsers(dbUsers);
+        }
+      } catch (err) {
+        console.error('Failed to fetch admin data:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+    fetchAllData();
   }, [])
 
   const saveMedicines = (newList) => {
-    setMedicines(newList)
-    localStorage.setItem('admin_medicines', JSON.stringify(newList))
+    setMedicines(newList);
   }
 
   const handleAddMedicine = () => {
@@ -47,43 +61,67 @@ const AdminDashboard = ({ onLogout }) => {
       composition: '',
       category: ''
     }
-    saveMedicines([newMed, ...medicines])
+    setMedicines([newMed, ...medicines]);
   }
 
   const handleUpdateMed = (id, field, value) => {
-    const newList = medicines.map(m => m.id === id ? { ...m, [field]: value } : m)
-    saveMedicines(newList)
+    setMedicines(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
   }
 
   const handleDeleteMed = (id) => {
     if (window.confirm('Delete this row?')) {
-      const newList = medicines.filter(m => m.id !== id)
-      saveMedicines(newList)
+      setMedicines(prev => prev.filter(m => m.id !== id));
     }
   }
 
-  const handleSaveSettings = (e) => {
-    e.preventDefault()
-    localStorage.setItem('admin_clinic_settings', JSON.stringify(clinicSettings))
-    alert('Settings Saved Successfully')
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setIsSyncing(true);
+    try {
+      const result = await databaseService.saveSettings(clinicSettings);
+      if (result) alert('Settings saved to Neon Database!');
+      else alert('Failed to save settings.');
+    } catch (err) {
+      console.error(err);
+      alert('Error saving settings.');
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
-  const handleUpdateUser = (id, field, value) => {
-    const newList = users.map(u => u.id === id ? { ...u, [field]: value } : u)
-    setUsers(newList)
-    localStorage.setItem('nexus_rx_users', JSON.stringify(newList))
+  const handleUpdateUser = async (id, field, value) => {
+    const user = users.find(u => u.id === id);
+    if (!user) return;
+    
+    const updatedUser = { ...user, [field]: value };
+    setUsers(prev => prev.map(u => u.id === id ? updatedUser : u));
+    
+    // Auto-save user update to DB
+    try {
+      await databaseService.updateUser(updatedUser);
+    } catch (err) {
+      console.error('Failed to update user in DB:', err);
+    }
   }
 
-  const handleDeleteUser = (id) => {
-    if (window.confirm('Are you sure you want to delete this doctor account?')) {
-      const newList = users.filter(u => u.id !== id)
-      setUsers(newList)
-      localStorage.setItem('nexus_rx_users', JSON.stringify(newList))
+  const handleDeleteUser = async (id) => {
+    const user = users.find(u => u.id === id);
+    if (!user) return;
+
+    if (window.confirm(`Are you sure you want to delete doctor account: ${user.name}?`)) {
+      try {
+        await databaseService.deleteUser(user.phone);
+        setUsers(prev => prev.filter(u => u.id !== id));
+        alert('User deleted successfully.');
+      } catch (err) {
+        console.error(err);
+        alert('Failed to delete user.');
+      }
     }
   }
 
   const filteredMedicines = medicines.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase())
+    m.name?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const filteredUsers = users.filter(u => 
@@ -99,6 +137,25 @@ const AdminDashboard = ({ onLogout }) => {
     link.href = url
     link.download = 'medicines_database.json'
     link.click()
+  }
+
+  const handleSyncToDB = async () => {
+    if (!window.confirm('Sync medicines to Neon Database? This will overwrite existing records in the cloud.')) return;
+    
+    setIsSyncing(true);
+    try {
+      const result = await databaseService.syncMedicines(medicines);
+      if (result) {
+        alert('Medicines successfully synced to Neon Database!');
+      } else {
+        alert('Sync failed. Please check your connection and Neon API configuration.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error during sync: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
   return (
@@ -154,7 +211,19 @@ const AdminDashboard = ({ onLogout }) => {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              {activeTab === 'medicines' && <button onClick={handleAddMedicine} className="excel-add-btn">+ Add New Row</button>}
+              {activeTab === 'medicines' && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button 
+                    onClick={handleSyncToDB} 
+                    className="excel-add-btn" 
+                    style={{ background: '#0891b2' }}
+                    disabled={isSyncing}
+                  >
+                    {isSyncing ? 'Syncing...' : '☁️ Sync to Cloud'}
+                  </button>
+                  <button onClick={handleAddMedicine} className="excel-add-btn">+ Add New Row</button>
+                </div>
+              )}
             </div>
           )}
         </header>

@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 const Header = ({ onLogout }) => {
   return (
     <header className="no-print" style={{
@@ -55,6 +57,23 @@ const Header = ({ onLogout }) => {
           <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', animation: 'pulse 2s infinite' }} />
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--primary)' }}>Live</span>
         </div>
+
+        <Link 
+          to="/admin-login"
+          style={{
+            fontSize: '0.85rem',
+            fontWeight: '600',
+            color: 'var(--secondary)',
+            textDecoration: 'none',
+            padding: '8px 12px',
+            borderRadius: '8px',
+            transition: 'background 0.2s'
+          }}
+          onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+          onMouseLeave={(e) => e.target.style.background = 'transparent'}
+        >
+          Admin
+        </Link>
 
         <button 
           onClick={onLogout}

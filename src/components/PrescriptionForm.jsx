@@ -68,7 +68,7 @@ const Label = ({ children }) => (
   </label>
 );
 
-const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor }) => {
+const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor, onSave }) => {
   const [showDoctorDropdown, setShowDoctorDropdown] = React.useState(false);
 
   const updateField = (field, value) => {
@@ -241,19 +241,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     }
   };
 
-  const handleSavePatient = async () => {
-    if (!data.mrn.trim()) {
-      alert('Please enter a Patient ID (MRN) first');
-      return;
-    }
-    
-    const result = await databaseService.savePatient(data);
-    if (result) {
-      alert('Patient information saved to Neon Database!');
-    } else {
-      alert('Failed to save to database. Check your connection/configuration.');
-    }
-  };
+
 
 
   const divider = <div style={{ height: '1px', background: 'var(--border)', margin: '1.5rem 0' }} />;
@@ -296,7 +284,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     const handleGlobalKeyDown = (e) => {
       if (e.ctrlKey && e.key === 's') {
         e.preventDefault();
-        handleSavePatient();
+        if (onSave) onSave();
       }
       if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
@@ -542,20 +530,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-        <button
-          onClick={handleSavePatient}
-          style={{
-            width: '100%', padding: '0.6rem', background: '#e0f2fe',
-            color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '8px',
-            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer'
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = '#bae6fd'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = '#e0f2fe'; }}
-        >
-          ☁️ Sync to Database
-        </button>
-
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
         <button
           onClick={handleClearPatient}
           style={{
@@ -1191,37 +1166,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
       </div>
 
-      <div style={{ marginTop: '2rem' }}>
-        <button
-          onClick={handleSavePatient}
-          style={{
-            width: '100%',
-            padding: '1rem',
-            background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '12px',
-            fontSize: '1rem',
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '0.75rem',
-            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
-            transition: 'transform 0.2s, box-shadow 0.2s'
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 15px rgba(37, 99, 235, 0.35)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.25)'; }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-            <polyline points="17 21 17 13 7 13 7 21" />
-            <polyline points="7 3 7 8 15 8" />
-          </svg>
-          SAVE PATIENT DATA TO NEON
-        </button>
-      </div>
+
 
     </div>
   );
