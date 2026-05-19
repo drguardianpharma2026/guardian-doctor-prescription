@@ -409,7 +409,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+      <div className="form-grid-2col">
         <div>
           <Label>Doctor Name</Label>
           <input type="text" value={data.doctorName} onChange={(e) => updateField('doctorName', e.target.value)} placeholder="Dr. Name" />
@@ -448,7 +448,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       />
 
       {/* Row 1: MRN & Date */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+      <div className="form-grid-2col" style={{ marginBottom: '1rem' }}>
         <div>
           <Label>MRN (Patient ID)</Label>
           <input 
@@ -467,7 +467,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       </div>
 
       {/* Row 2: Large Patient Name & Age */}
-      <div style={{ display: 'grid', gridTemplateColumns: '3.5fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+      <div className="form-grid-name-age">
         <div>
           <Label>Patient Name</Label>
           <input 
@@ -492,7 +492,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       </div>
 
       {/* Row 3: Gender & Phone */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem', marginBottom: '2rem' }}>
+      <div className="form-grid-gender-phone">
         <div>
           <Label>Gender</Label>
           <select value={data.gender} onChange={(e) => updateField('gender', e.target.value)}>
@@ -511,7 +511,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       </div>
 
       {/* Row 4: Vitals */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem', marginBottom: '2rem', background: '#f0f9ff', padding: '1rem', borderRadius: '12px', border: '1px solid #bae6fd' }}>
+      <div className="form-grid-vitals">
         <div>
           <Label>Weight (kg)</Label>
           <input type="text" value={data.weight || ''} onChange={(e) => updateField('weight', e.target.value)} placeholder="65" />
