@@ -11,7 +11,7 @@ export default async function handler(req, res) {
         const result = await sql`SELECT * FROM mrn WHERE mrn = ${mrn} LIMIT 1`;
         return res.status(200).json(result[0] || null);
       }
-      const result = await sql`SELECT * FROM mrn ORDER BY updated_at DESC LIMIT 100`;
+      const result = await sql`SELECT *, ROW_NUMBER() OVER (ORDER BY mrn ASC) AS row_id FROM mrn LIMIT 500`;
       return res.status(200).json(result);
     }
 
@@ -31,6 +31,20 @@ export default async function handler(req, res) {
           last_temp = EXCLUDED.last_temp,
           updated_at = NOW()
       `;
+      return res.status(200).json({ success: true });
+    }
+
+    if (req.method === 'DELETE') {
+      const { mrn, clearAll } = req.query;
+      if (clearAll === 'true') {
+        await sql`DELETE FROM prescriptions`;
+        await sql`DELETE FROM mrn`;
+        return res.status(200).json({ success: true, message: 'All patients and prescriptions deleted' });
+      }
+      if (!mrn) return res.status(400).json({ error: 'MRN or clearAll is required' });
+      // Delete prescriptions first (cascade), then the patient record
+      await sql`DELETE FROM prescriptions WHERE mrn = ${mrn}`;
+      await sql`DELETE FROM mrn WHERE mrn = ${mrn}`;
       return res.status(200).json({ success: true });
     }
 

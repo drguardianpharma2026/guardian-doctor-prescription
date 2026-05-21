@@ -48,6 +48,10 @@ export const databaseService = {
     return api('/api/patients');
   },
 
+  async deletePatient(mrn) {
+    return api(`/api/patients?mrn=${encodeURIComponent(mrn)}`, 'DELETE');
+  },
+
   // ── Medicines ──
   async getMedicines() {
     return api('/api/medicines');
@@ -93,6 +97,15 @@ export const databaseService = {
 
   async getPrescriptions() {
     return api('/api/prescriptions');
+  },
+
+  async getPrescriptionsByMRN(mrn) {
+    if (!mrn) return [];
+    return api(`/api/prescriptions?mrn=${encodeURIComponent(mrn)}`);
+  },
+
+  async clearAllPrescriptions() {
+    return api('/api/prescriptions?clearAll=true', 'DELETE');
   },
 
   // ── Clinic Settings ──

@@ -6,6 +6,11 @@ export default async function handler(req, res) {
   try {
     const sql = getDb();
     if (req.method === 'GET') {
+      const { mrn } = req.query;
+      if (mrn) {
+        const result = await sql`SELECT * FROM prescriptions WHERE mrn = ${mrn} ORDER BY created_at DESC`;
+        return res.status(200).json(result);
+      }
       const result = await sql`SELECT * FROM prescriptions ORDER BY created_at DESC LIMIT 200`;
       return res.status(200).json(result);
     }
@@ -21,6 +26,19 @@ export default async function handler(req, res) {
            ${d.doctor_name || ''}, ${d.doctor_reg_no || ''}, ${d.vitals}, NOW())
       `;
       return res.status(200).json({ success: true });
+    }
+
+    if (req.method === 'DELETE') {
+      const { mrn, clearAll } = req.query;
+      if (clearAll === 'true') {
+        await sql`DELETE FROM prescriptions`;
+        return res.status(200).json({ success: true, message: 'All prescriptions deleted' });
+      }
+      if (mrn) {
+        await sql`DELETE FROM prescriptions WHERE mrn = ${mrn}`;
+        return res.status(200).json({ success: true, message: `Prescriptions for MRN ${mrn} deleted` });
+      }
+      return res.status(400).json({ error: 'Missing MRN or clearAll flag' });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

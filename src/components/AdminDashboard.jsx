@@ -3,6 +3,24 @@ import { useNavigate } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
 
+const getNextAutomationMRN = (existingPatients) => {
+  const numericMRNs = existingPatients
+    .map(p => {
+      const trimmed = p.mrn?.trim() || '';
+      if (/^\d+$/.test(trimmed)) {
+        return parseInt(trimmed, 10);
+      }
+      return NaN;
+    })
+    .filter(num => !isNaN(num) && num >= 0);
+
+  if (numericMRNs.length > 0) {
+    const maxMRN = Math.max(...numericMRNs);
+    return (maxMRN + 1).toString();
+  }
+  return '1';
+};
+
 const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('medicines')
   const [medicines, setMedicines] = useState([])
@@ -21,6 +39,18 @@ const AdminDashboard = ({ onLogout }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false)
   const [newPatient, setNewPatient] = useState({
+    mrn: '',
+    patientName: '',
+    age: '',
+    gender: 'Male',
+    phone: '',
+    weight: '',
+    bp: '',
+    pulse: '',
+    temp: ''
+  })
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editingPatient, setEditingPatient] = useState({
     mrn: '',
     patientName: '',
     age: '',
@@ -68,6 +98,28 @@ const AdminDashboard = ({ onLogout }) => {
     };
     fetchAllData();
   }, [])
+
+  const applyGenderPrefix = (name, gender) => {
+    let trimmedName = (name || '').trim();
+    const titles = ['Mr.', 'Mrs.', 'Ms.', 'Master.', 'Miss.', 'Dr.'];
+
+    let baseName = trimmedName;
+    for (const t of titles) {
+      if (trimmedName.toLowerCase().startsWith(t.toLowerCase() + ' ')) {
+        baseName = trimmedName.substring(t.length + 1).trim();
+        break;
+      } else if (trimmedName.toLowerCase() === t.toLowerCase()) {
+        baseName = '';
+        break;
+      }
+    }
+
+    let newPrefix = '';
+    if (gender === 'Male') newPrefix = 'Mr. ';
+    else if (gender === 'Female') newPrefix = 'Mrs. ';
+
+    return newPrefix + baseName;
+  };
 
   const saveMedicines = (newList) => {
     setMedicines(newList);
@@ -127,10 +179,10 @@ const AdminDashboard = ({ onLogout }) => {
   const handleUpdateUser = async (id, field, value) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
-    
+
     const updatedUser = { ...user, [field]: value };
     setUsers(prev => prev.map(u => u.id === id ? updatedUser : u));
-    
+
     // Auto-save user update to DB
     try {
       await databaseService.updateUser(updatedUser);
@@ -177,13 +229,54 @@ const AdminDashboard = ({ onLogout }) => {
     }
   }
 
-  const filteredMedicines = medicines.filter(m => 
+  const handleEditPatient = async (e) => {
+    e.preventDefault();
+    if (!editingPatient.mrn || !editingPatient.patientName) {
+      alert('Patient ID (MRN) and Patient Name are required.');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      await databaseService.savePatient(editingPatient);
+      alert('Patient record updated successfully!');
+      setIsEditModalOpen(false);
+      // Re-fetch patient records to update UI
+      const fetchedPatients = await databaseService.getAllPatients();
+      setPatients(fetchedPatients || []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update patient: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  const handleDeletePatient = async (mrn, name) => {
+    if (!window.confirm(`Are you sure you want to PERMANENTLY delete patient: ${name}? This cannot be undone.`)) return;
+    setIsSyncing(true);
+    try {
+      await databaseService.deletePatient(mrn);
+      alert('Patient record deleted successfully.');
+      // Re-fetch patient records AND prescriptions to update UI
+      const fetchedPatients = await databaseService.getAllPatients();
+      setPatients(fetchedPatients || []);
+      const fetchedPrescriptions = await databaseService.getPrescriptions();
+      setPrescriptions(fetchedPrescriptions || []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete patient: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  const filteredMedicines = medicines.filter(m =>
     m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     m.composition?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const filteredUsers = users.filter(u => 
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredUsers = users.filter(u =>
+    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.phone?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
@@ -199,7 +292,7 @@ const AdminDashboard = ({ onLogout }) => {
 
   const handleSyncToDB = async () => {
     if (!window.confirm('Sync medicines to Neon Database? This will overwrite existing records in the cloud.')) return;
-    
+
     setIsSyncing(true);
     try {
       const result = await databaseService.syncMedicines(medicines);
@@ -228,7 +321,7 @@ const AdminDashboard = ({ onLogout }) => {
           <span>Guardian Admin</span>
           <button className="sidebar-close-x" onClick={() => setIsSidebarOpen(false)}>×</button>
         </div>
-        
+
         <nav>
           <button className={activeTab === 'medicines' ? 'active' : ''} onClick={() => { setActiveTab('medicines'); setSearchTerm(''); setIsSidebarOpen(false); }}>
             <span className="icon">📂</span> Medicine Master
@@ -258,54 +351,56 @@ const AdminDashboard = ({ onLogout }) => {
             <button className="hamburger-menu" onClick={() => setIsSidebarOpen(true)}>☰</button>
             <div>
               <h1>
-                {activeTab === 'medicines' ? 'Medicine Database Grid' : 
-                 activeTab === 'patients' ? 'Patient Records' :
-                 activeTab === 'users' ? 'Doctor Management Console' : 
-                 'System Configuration'}
+                {activeTab === 'medicines' ? 'Medicine Database Grid' :
+                  activeTab === 'patients' ? 'Patient Records' :
+                    activeTab === 'users' ? 'Doctor Management Console' :
+                      'System Configuration'}
               </h1>
               <p>
                 {activeTab === 'medicines' ? `${medicines.length} Rows found` :
-                 activeTab === 'patients' ? `${patients.length} Patients registered` :
-                 activeTab === 'users' ? `${users.length} Registered Doctors` : 
-                 'Global Settings'}
+                  activeTab === 'patients' ? `${patients.length} Patients registered` :
+                    activeTab === 'users' ? `${users.length} Registered Doctors` :
+                      'Global Settings'}
               </p>
             </div>
           </div>
-          
+
           {(activeTab === 'medicines' || activeTab === 'users' || activeTab === 'patients') && (
             <div className="header-right">
               <div className="excel-search">
-                <input 
+                <input
                   placeholder={`Search ${activeTab === 'medicines' ? 'medicines' : activeTab === 'patients' ? 'patients by name or MRN...' : 'doctors'}...`}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               {activeTab === 'patients' && (
-                <button 
-                  onClick={() => {
-                    setNewPatient({
-                      mrn: '',
-                      patientName: '',
-                      age: '',
-                      gender: 'Male',
-                      phone: '',
-                      weight: '',
-                      bp: '',
-                      pulse: '',
-                      temp: ''
-                    });
-                    setIsRegisterModalOpen(true);
-                  }}
-                  className="excel-add-btn"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#10b981' }}
-                >
-                  ➕ Register Patient
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={() => {
+                      setNewPatient({
+                        mrn: '',
+                        patientName: '',
+                        age: '',
+                        gender: 'Male',
+                        phone: '',
+                        weight: '',
+                        bp: '',
+                        pulse: '',
+                        temp: ''
+                      });
+                      setIsRegisterModalOpen(true);
+                    }}
+                    className="excel-add-btn"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#10b981' }}
+                  >
+                    ➕ Register Patient
+                  </button>
+                </div>
               )}
               {activeTab === 'medicines' && (
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button 
+                  <button
                     onClick={async () => {
                       setIsSyncing(true);
                       try {
@@ -318,8 +413,8 @@ const AdminDashboard = ({ onLogout }) => {
                       } finally {
                         setIsSyncing(false);
                       }
-                    }} 
-                    className="excel-add-btn" 
+                    }}
+                    className="excel-add-btn"
                     style={{ background: '#16a34a' }}
                     disabled={isSyncing}
                   >
@@ -350,16 +445,16 @@ const AdminDashboard = ({ onLogout }) => {
                     <tr key={med.id}>
                       <td className="row-num-col">{idx + 1}</td>
                       <td>
-                        <input 
-                          value={med.name} 
+                        <input
+                          value={med.name}
                           onChange={(e) => handleUpdateMed(med.id, 'name', e.target.value)}
                           onBlur={() => handleSaveMed(med)}
                           placeholder="Enter Name..."
                         />
                       </td>
                       <td>
-                        <select 
-                          value={med.type} 
+                        <select
+                          value={med.type}
                           onChange={(e) => {
                             const newType = e.target.value;
                             handleUpdateMed(med.id, 'type', newType);
@@ -375,8 +470,8 @@ const AdminDashboard = ({ onLogout }) => {
                         </select>
                       </td>
                       <td>
-                        <input 
-                          value={med.composition} 
+                        <input
+                          value={med.composition}
                           onChange={(e) => handleUpdateMed(med.id, 'composition', e.target.value)}
                           onBlur={() => handleSaveMed(med)}
                           placeholder="e.g. 500mg"
@@ -412,44 +507,44 @@ const AdminDashboard = ({ onLogout }) => {
                     <tr key={user.id}>
                       <td className="row-num-col">{idx + 1}</td>
                       <td>
-                        <input 
-                          value={user.name} 
+                        <input
+                          value={user.name}
                           onChange={(e) => handleUpdateUser(user.id, 'name', e.target.value)}
                           placeholder="Doctor Name..."
                         />
                       </td>
                       <td>
-                        <input 
-                          value={user.qualification || ''} 
+                        <input
+                          value={user.qualification || ''}
                           onChange={(e) => handleUpdateUser(user.id, 'qualification', e.target.value)}
                           placeholder="MBBS, MD..."
                         />
                       </td>
                       <td>
-                        <input 
-                          value={user.consultant || ''} 
+                        <input
+                          value={user.consultant || ''}
                           onChange={(e) => handleUpdateUser(user.id, 'consultant', e.target.value)}
                           placeholder="Consultant..."
                         />
                       </td>
                       <td>
-                        <input 
-                          value={user.regNo || ''} 
+                        <input
+                          value={user.regNo || ''}
                           onChange={(e) => handleUpdateUser(user.id, 'regNo', e.target.value)}
                           placeholder="Reg No..."
                         />
                       </td>
                       <td>
-                        <input 
-                          value={user.phone} 
+                        <input
+                          value={user.phone}
                           onChange={(e) => handleUpdateUser(user.id, 'phone', e.target.value)}
                           placeholder="Mobile Number..."
                         />
                       </td>
                       <td>
-                        <input 
+                        <input
                           type="text"
-                          value={user.password} 
+                          value={user.password}
                           onChange={(e) => handleUpdateUser(user.id, 'password', e.target.value)}
                           placeholder="Password..."
                         />
@@ -492,7 +587,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th>BP</th>
                       <th>Pulse</th>
                       <th>Temp</th>
-                      <th style={{ width: 90, textAlign: 'center' }}>History</th>
+                      <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -500,24 +595,54 @@ const AdminDashboard = ({ onLogout }) => {
                       const patientRx = prescriptions.filter(rx => rx.mrn === p.mrn);
                       return (
                         <React.Fragment key={p.mrn}>
-                          <tr>
-                            <td className="row-num-col">{idx + 1}</td>
-                            <td><span style={{ padding: '0 12px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{p.mrn}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.name}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.age}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.sex}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.phone}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.last_weight}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.last_bp}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.last_pulse}</span></td>
-                            <td><span style={{ padding: '0 12px', display: 'block' }}>{p.last_temp}</span></td>
+                          <tr style={{ height: '28px' }}>
+                            <td className="row-num-col">{p.row_id}</td>
+                            <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{p.mrn}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.name}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.age}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.sex}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.phone}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_weight}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_bp}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_pulse}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_temp}</span></td>
                             <td style={{ textAlign: 'center' }}>
-                              <button
-                                onClick={() => { setModalPatient(p); setSelectedRxIndex(0); }}
-                                style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontSize: '0.8rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                              >
-                                📋 {patientRx.length}
-                              </button>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                                <button
+                                  onClick={() => { setModalPatient(p); setSelectedRxIndex(0); }}
+                                  style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                  title="View Prescription History"
+                                >
+                                  📋 {patientRx.length}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingPatient({
+                                      mrn: p.mrn,
+                                      patientName: p.name || '',
+                                      age: p.age || '',
+                                      gender: p.sex || 'Male',
+                                      phone: p.phone || '',
+                                      weight: p.last_weight || '',
+                                      bp: p.last_bp || '',
+                                      pulse: p.last_pulse || '',
+                                      temp: p.last_temp || ''
+                                    });
+                                    setIsEditModalOpen(true);
+                                  }}
+                                  style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                  title="Edit Patient Info"
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeletePatient(p.mrn, p.name)}
+                                  style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                  title="Delete Patient"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         </React.Fragment>
@@ -541,11 +666,11 @@ const AdminDashboard = ({ onLogout }) => {
                 <form onSubmit={handleSaveSettings}>
                   <div className="grid-field">
                     <label>Hospital/Clinic Name</label>
-                    <input value={clinicSettings.name} onChange={(e) => setClinicSettings({...clinicSettings, name: e.target.value})} />
+                    <input value={clinicSettings.name} onChange={(e) => setClinicSettings({ ...clinicSettings, name: e.target.value })} />
                   </div>
                   <div className="grid-field">
                     <label>Contact Info & Phone Numbers</label>
-                    <textarea rows="4" value={clinicSettings.phone} onChange={(e) => setClinicSettings({...clinicSettings, phone: e.target.value})} />
+                    <textarea rows="4" value={clinicSettings.phone} onChange={(e) => setClinicSettings({ ...clinicSettings, phone: e.target.value })} />
                   </div>
                   <button type="submit" className="save-btn">Apply Changes</button>
                 </form>
@@ -563,9 +688,9 @@ const AdminDashboard = ({ onLogout }) => {
         if (activeRx) {
           const docInfo = users.find(u => u.name === activeRx.doctor_name) || {};
           let vitals = {};
-          try { vitals = JSON.parse(activeRx.vitals || '{}'); } catch (e) {}
+          try { vitals = JSON.parse(activeRx.vitals || '{}'); } catch (e) { }
           let meds = [];
-          try { meds = JSON.parse(activeRx.medicines || '[]'); } catch (e) {}
+          try { meds = JSON.parse(activeRx.medicines || '[]'); } catch (e) { }
 
           previewData = {
             mrn: activeRx.mrn || modalPatient.mrn || '',
@@ -613,8 +738,8 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div className="sidebar-list">
                   {patientRxs.map((rx, idx) => (
-                    <div 
-                      key={idx} 
+                    <div
+                      key={idx}
                       className={`sidebar-item ${selectedRxIndex === idx ? 'active' : ''}`}
                       onClick={() => setSelectedRxIndex(idx)}
                     >
@@ -647,24 +772,24 @@ const AdminDashboard = ({ onLogout }) => {
                           printWindow.document.write(
                             '<!DOCTYPE html>' +
                             '<html>' +
-                              '<head>' +
-                                '<meta charset="utf-8" />' +
-                                '<title>Prescription Preview</title>' +
-                                '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
-                                '<style>' +
-                                  '* { box-sizing: border-box; margin: 0; padding: 0; }' +
-                                  'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
-                                  '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
-                                  '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
-                                  '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
-                                  '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 0.8cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
-                                  '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } }' +
-                                '</style>' +
-                              '</head>' +
-                              '<body>' +
-                                '<div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>' +
-                                '<div id="paper-wrapper">' + paperEl.outerHTML + '</div>' +
-                              '</body>' +
+                            '<head>' +
+                            '<meta charset="utf-8" />' +
+                            '<title>Prescription Preview</title>' +
+                            '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
+                            '<style>' +
+                            '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+                            'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
+                            '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
+                            '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
+                            '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
+                            '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 0.8cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
+                            '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } }' +
+                            '</style>' +
+                            '</head>' +
+                            '<body>' +
+                            '<div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>' +
+                            '<div id="paper-wrapper">' + paperEl.outerHTML + '</div>' +
+                            '</body>' +
                             '</html>'
                           );
                           printWindow.document.close();
@@ -697,39 +822,63 @@ const AdminDashboard = ({ onLogout }) => {
             <form onSubmit={handleRegisterPatient} className="registration-form">
               <div className="form-grid">
                 <div className="form-field full-width">
-                  <label>Patient ID / MRN *</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="Enter Unique Patient ID or MRN..." 
-                    value={newPatient.mrn} 
-                    onChange={(e) => setNewPatient({ ...newPatient, mrn: e.target.value })}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label>Patient ID / MRN *</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextMRN = getNextAutomationMRN(patients);
+                        setNewPatient({ ...newPatient, mrn: nextMRN });
+                      }}
+                      style={{ background: '#e0f2fe', border: 'none', borderRadius: 4, color: '#0369a1', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      🤖 Auto-generate (123456789)
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter Unique Patient ID or MRN (or type 'automation')..."
+                    value={newPatient.mrn}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val.toLowerCase() === 'automation') {
+                        const nextMRN = getNextAutomationMRN(patients);
+                        setNewPatient({ ...newPatient, mrn: nextMRN });
+                      } else {
+                        setNewPatient({ ...newPatient, mrn: val });
+                      }
+                    }}
                   />
                 </div>
                 <div className="form-field full-width">
                   <label>Patient Full Name *</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="Enter Patient's Full Name..." 
-                    value={newPatient.patientName} 
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter Patient's Full Name..."
+                    value={newPatient.patientName}
                     onChange={(e) => setNewPatient({ ...newPatient, patientName: e.target.value })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Age</label>
-                  <input 
-                    type="number" 
-                    placeholder="Age..." 
-                    value={newPatient.age} 
+                  <input
+                    type="number"
+                    placeholder="Age..."
+                    value={newPatient.age}
                     onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Gender / Sex</label>
-                  <select 
-                    value={newPatient.gender} 
-                    onChange={(e) => setNewPatient({ ...newPatient, gender: e.target.value })}
+                  <select
+                    value={newPatient.gender}
+                    onChange={(e) => {
+                      const newGender = e.target.value;
+                      const updatedName = applyGenderPrefix(newPatient.patientName, newGender);
+                      setNewPatient({ ...newPatient, gender: newGender, patientName: updatedName });
+                    }}
                   >
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
@@ -738,49 +887,49 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
                 <div className="form-field full-width">
                   <label>Contact Phone Number</label>
-                  <input 
-                    type="tel" 
-                    placeholder="Mobile or Landline Number..." 
-                    value={newPatient.phone} 
+                  <input
+                    type="tel"
+                    placeholder="Mobile or Landline Number..."
+                    value={newPatient.phone}
                     onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
                   />
                 </div>
-                
+
                 <div className="form-divider full-width">Vitals & Physical Metrics</div>
 
                 <div className="form-field">
                   <label>Weight (kg)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 70" 
-                    value={newPatient.weight} 
+                  <input
+                    type="text"
+                    placeholder="e.g. 70"
+                    value={newPatient.weight}
                     onChange={(e) => setNewPatient({ ...newPatient, weight: e.target.value })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Blood Pressure (BP)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 120/80" 
-                    value={newPatient.bp} 
+                  <input
+                    type="text"
+                    placeholder="e.g. 120/80"
+                    value={newPatient.bp}
                     onChange={(e) => setNewPatient({ ...newPatient, bp: e.target.value })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Pulse Rate (bpm)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 72" 
-                    value={newPatient.pulse} 
+                  <input
+                    type="text"
+                    placeholder="e.g. 72"
+                    value={newPatient.pulse}
                     onChange={(e) => setNewPatient({ ...newPatient, pulse: e.target.value })}
                   />
                 </div>
                 <div className="form-field">
                   <label>Temperature (°F)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 98.6" 
-                    value={newPatient.temp} 
+                  <input
+                    type="text"
+                    placeholder="e.g. 98.6"
+                    value={newPatient.temp}
                     onChange={(e) => setNewPatient({ ...newPatient, temp: e.target.value })}
                   />
                 </div>
@@ -797,7 +946,122 @@ const AdminDashboard = ({ onLogout }) => {
         </div>
       )}
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      {/* ── Patient Edit Modal ── */}
+      {isEditModalOpen && (
+        <div className="admin-modal-overlay">
+          <div className="registration-modal-content">
+            <div className="registration-modal-header">
+              <h2>Edit Patient Record</h2>
+              <button className="registration-close-btn" onClick={() => setIsEditModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleEditPatient} className="registration-form">
+              <div className="form-grid">
+                <div className="form-field full-width">
+                  <label>Patient ID / MRN (Cannot be changed)</label>
+                  <input
+                    type="text"
+                    disabled
+                    style={{ background: '#e2e8f0', color: '#64748b', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
+                    value={editingPatient.mrn}
+                  />
+                </div>
+                <div className="form-field full-width">
+                  <label>Patient Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter Patient's Full Name..."
+                    value={editingPatient.patientName}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, patientName: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Age</label>
+                  <input
+                    type="number"
+                    placeholder="Age..."
+                    value={editingPatient.age}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, age: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Gender / Sex</label>
+                  <select
+                    value={editingPatient.gender}
+                    onChange={(e) => {
+                      const newGender = e.target.value;
+                      const updatedName = applyGenderPrefix(editingPatient.patientName, newGender);
+                      setEditingPatient({ ...editingPatient, gender: newGender, patientName: updatedName });
+                    }}
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                <div className="form-field full-width">
+                  <label>Contact Phone Number</label>
+                  <input
+                    type="tel"
+                    placeholder="Mobile or Landline Number..."
+                    value={editingPatient.phone}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-divider full-width">Vitals & Physical Metrics</div>
+
+                <div className="form-field">
+                  <label>Weight (kg)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 70"
+                    value={editingPatient.weight}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, weight: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Blood Pressure (BP)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 120/80"
+                    value={editingPatient.bp}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, bp: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Pulse Rate (bpm)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 72"
+                    value={editingPatient.pulse}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, pulse: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Temperature (°F)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 98.6"
+                    value={editingPatient.temp}
+                    onChange={(e) => setEditingPatient({ ...editingPatient, temp: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="registration-actions">
+                <button type="button" className="cancel-btn" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                <button type="submit" className="submit-btn" disabled={isSyncing}>
+                  {isSyncing ? 'Saving Changes...' : '💾 Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .excel-admin {
           display: flex;
           height: 100vh;
@@ -908,16 +1172,16 @@ const AdminDashboard = ({ onLogout }) => {
           width: 100%;
           border-collapse: collapse;
           table-layout: fixed;
-          font-size: 0.85rem;
+          font-size: 0.78rem;
         }
         .excel-table th {
           position: sticky;
           top: 0;
           background: #f9fafb;
           color: #4b5563;
-          font-weight: 600;
+          font-weight: 700;
           text-align: left;
-          padding: 8px 12px;
+          padding: 6px 10px;
           border-bottom: 2px solid #e5e7eb;
           border-right: 1px solid #e5e7eb;
           z-index: 10;
@@ -937,12 +1201,12 @@ const AdminDashboard = ({ onLogout }) => {
         
         .excel-table input, .excel-table select {
           width: 100%;
-          height: 35px;
+          height: 28px;
           border: none;
-          padding: 0 12px;
+          padding: 0 8px;
           background: transparent;
           outline: none;
-          font-size: 0.85rem;
+          font-size: 0.8rem;
           color: #374151;
         }
         .excel-table input:focus, .excel-table select:focus {
@@ -953,11 +1217,11 @@ const AdminDashboard = ({ onLogout }) => {
           background: none;
           border: none;
           color: #d1d5db;
-          font-size: 1.2rem;
+          font-size: 1rem;
           cursor: pointer;
           padding: 0;
           width: 100%;
-          height: 35px;
+          height: 28px;
         }
         .excel-del-row:hover { color: #ef4444; background: #fee2e2; }
 
@@ -1429,7 +1693,7 @@ const AdminDashboard = ({ onLogout }) => {
             padding: 10px;
           }
           .paper-scale-container {
-            transform: scale(0.48);
+            transform: scale(0.55);
             transform-origin: top center;
             width: 210mm;
             height: auto;
@@ -1438,7 +1702,7 @@ const AdminDashboard = ({ onLogout }) => {
 
         @media (max-width: 480px) {
           .paper-scale-container {
-            transform: scale(0.38);
+            transform: scale(0.42);
           }
         }
       ` }} />

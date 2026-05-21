@@ -1,5 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { databaseService } from '../services/databaseService';
+import PrescriptionPreview from './PrescriptionPreview';
+
+const getNextAutomationMRN = (existingPatients) => {
+  const numericMRNs = existingPatients
+    .map(p => {
+      const trimmed = p.mrn?.trim() || '';
+      if (/^\d+$/.test(trimmed)) {
+        return parseInt(trimmed, 10);
+      }
+      return NaN;
+    })
+    .filter(num => !isNaN(num) && num >= 0);
+
+  if (numericMRNs.length > 0) {
+    const maxMRN = Math.max(...numericMRNs);
+    return (maxMRN + 1).toString();
+  }
+  return '1';
+};
 
 const DoctorItem = ({ doc, isLast, onSelect, onDelete }) => {
   const [isConfirming, setIsConfirming] = React.useState(false);
@@ -70,6 +89,10 @@ const Label = ({ children }) => (
 
 const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor, onSave }) => {
   const [showDoctorDropdown, setShowDoctorDropdown] = React.useState(false);
+  const [patientHistory, setPatientHistory] = React.useState([]);
+  const [activeHistoryIndex, setActiveHistoryIndex] = React.useState(0);
+  const [isViewModalOpen, setIsViewModalOpen] = React.useState(false);
+  const [isModalZoomed, setIsModalZoomed] = React.useState(false);
 
   const updateField = (field, value) => {
     let newData = { ...data, [field]: value };
@@ -79,11 +102,15 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       let name = data.patientName.trim();
       const titles = ['Mr.', 'Mrs.', 'Ms.', 'Master.', 'Miss.', 'Dr.'];
 
-      // Find if existing name has a title
+      // Find if existing name has a title and extract the base name
       let baseName = name;
       for (const t of titles) {
         if (name.toLowerCase().startsWith(t.toLowerCase() + ' ')) {
           baseName = name.substring(t.length + 1).trim();
+          break;
+        } else if (name.toLowerCase() === t.toLowerCase()) {
+          // Case where only the title was typed
+          baseName = '';
           break;
         }
       }
@@ -95,11 +122,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         newPrefix = 'Mrs. ';
       }
 
-      if (newPrefix && baseName) {
+      if (newPrefix) {
         newData.patientName = newPrefix + baseName;
-      } else if (newPrefix && !baseName) {
-        // If name is empty, just set the prefix for the user to continue typing
-        newData.patientName = newPrefix;
       }
     }
 
@@ -212,6 +236,8 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
   const handleClearPatient = () => {
     if (confirm('Clear all patient and clinical data?')) {
+      setPatientHistory([]);
+      setActiveHistoryIndex(0);
       setData({
         ...data,
         mrn: '', visitNo: '', patientName: '', age: '', gender: '', phone: '',
@@ -224,7 +250,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
   const handleMRNBlur = async () => {
     if (!data.mrn.trim()) return;
-    
+
     const patient = await databaseService.getPatient(data.mrn);
     if (patient) {
       setData(prev => ({
@@ -302,7 +328,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
   // Live auto-populate patient details on MRN change
   useEffect(() => {
     const trimmed = data.mrn?.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      setPatientHistory([]);
+      return;
+    }
 
     const delayDebounceFn = setTimeout(async () => {
       try {
@@ -324,10 +353,32 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
             };
           });
         }
+
+        // Fetch ALL history for this patient
+        const rxList = await databaseService.getPrescriptionsByMRN(trimmed);
+        if (rxList && rxList.length > 0) {
+          const history = rxList.map(rx => {
+            let meds = [];
+            try { meds = JSON.parse(rx.medicines || '[]'); } catch (e) { }
+            return {
+              date: rx.date || '',
+              diagnosis: rx.diagnosis || '',
+              complaints: rx.complaints || '',
+              doctorName: rx.doctor_name || '',
+              medicines: meds,
+              advice: rx.advice || '',
+              followUp: rx.follow_up || ''
+            };
+          });
+          setPatientHistory(history);
+          setActiveHistoryIndex(0);
+        } else {
+          setPatientHistory([]);
+        }
       } catch (err) {
         console.error('Error fetching patient live:', err);
       }
-    }, 150); // Debounce to protect DB and feel instant!
+    }, 150);
 
     return () => clearTimeout(delayDebounceFn);
   }, [data.mrn]);
@@ -345,15 +396,15 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       const mappedAmType = typeMap[am.type] || am.type;
       return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
     });
-    
+
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      const nextIndex = e.key === 'ArrowDown' 
+      const nextIndex = e.key === 'ArrowDown'
         ? Math.min((med.suggestionIndex || -1) + 1, filtered.length - 1)
         : Math.max((med.suggestionIndex || -1) - 1, 0);
-      
+
       updateMedicine(index, 'suggestionIndex', nextIndex);
-      
+
       // Auto-scroll logic
       setTimeout(() => {
         const activeItem = document.getElementById(`suggestion-${index}-${nextIndex}`);
@@ -387,12 +438,12 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       'Tablet': 'TAB', 'Capsule': 'CAP', 'Syrup': 'SYP', 'Injection': 'INJ',
       'Drops': 'DRP', 'Ointment': 'GEL', 'Cream': 'CRM', 'Lotion': 'LOTION', 'Spray': 'SPRAY'
     };
-    
+
     setData(prev => {
       const newMeds = [...prev.medicines];
       const rawType = am.type || '';
       const mappedType = typeMap[rawType] || rawType;
-      
+
       newMeds[index] = {
         ...newMeds[index],
         name: am.name,
@@ -491,17 +542,46 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>}
       />
 
-      {/* Row 1: MRN & Date */}
       <div className="form-grid-2col" style={{ marginBottom: '1rem' }}>
         <div>
-          <Label>MRN (Patient ID)</Label>
-          <input 
-            type="text" 
-            value={data.mrn} 
-            onChange={(e) => updateField('mrn', e.target.value)} 
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+            <Label style={{ margin: 0 }}>MRN (Patient ID)</Label>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const allPatients = await databaseService.getAllPatients();
+                  const nextMRN = getNextAutomationMRN(allPatients || []);
+                  updateField('mrn', nextMRN);
+                } catch (err) {
+                  updateField('mrn', '123456789');
+                }
+              }}
+              style={{ background: '#e0f2fe', border: 'none', borderRadius: 4, color: '#0369a1', fontSize: '0.7rem', fontWeight: 600, padding: '1px 6px', cursor: 'pointer' }}
+            >
+              🤖 Auto-generate (123456789)
+            </button>
+          </div>
+          <input
+            type="text"
+            value={data.mrn}
+            onChange={async (e) => {
+              const val = e.target.value;
+              if (val.toLowerCase() === 'automation') {
+                try {
+                  const allPatients = await databaseService.getAllPatients();
+                  const nextMRN = getNextAutomationMRN(allPatients || []);
+                  updateField('mrn', nextMRN);
+                } catch (err) {
+                  updateField('mrn', '123456789');
+                }
+              } else {
+                updateField('mrn', val);
+              }
+            }}
             onBlur={handleMRNBlur}
             onFocus={(e) => e.target.select()}
-            placeholder="07042" 
+            placeholder="07042 (or type 'automation')"
           />
         </div>
         <div>
@@ -514,23 +594,23 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       <div className="form-grid-name-age">
         <div>
           <Label>Patient Name</Label>
-          <input 
-            type="text" 
-            value={data.patientName} 
-            onChange={(e) => updateField('patientName', e.target.value)} 
+          <input
+            type="text"
+            value={data.patientName}
+            onChange={(e) => updateField('patientName', e.target.value)}
             onFocus={(e) => e.target.select()}
-            placeholder="Full Name" 
-            style={{ fontWeight: 700, fontSize: '1rem' }} 
+            placeholder="Full Name"
+            style={{ fontWeight: 700, fontSize: '1rem' }}
           />
         </div>
         <div>
           <Label>Age</Label>
-          <input 
-            type="text" 
-            value={data.age} 
-            onChange={(e) => updateField('age', e.target.value)} 
+          <input
+            type="text"
+            value={data.age}
+            onChange={(e) => updateField('age', e.target.value)}
             onFocus={(e) => e.target.select()}
-            placeholder="Age" 
+            placeholder="Age"
           />
         </div>
       </div>
@@ -588,6 +668,171 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           🗑 Reset Form
         </button>
       </div>
+
+      {/* ══ PATIENT HISTORY ══ */}
+      {patientHistory.length > 0 && (
+        <div style={{
+          margin: '1.5rem 0',
+          padding: '1.25rem',
+          background: '#ffffff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '16px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '5px', background: '#3b82f6' }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ margin: 0, fontSize: '0.9rem', color: '#1e293b', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+              <span style={{ fontSize: '1.2rem' }}>🏥</span> Patient Medical History
+            </h3>
+            <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '4px', maxWidth: '60%' }}>
+              {patientHistory.map((h, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActiveHistoryIndex(i)}
+                  style={{
+                    whiteSpace: 'nowrap',
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    border: '1px solid',
+                    transition: 'all 0.2s',
+                    background: activeHistoryIndex === i ? '#2563eb' : 'white',
+                    color: activeHistoryIndex === i ? 'white' : '#64748b',
+                    borderColor: activeHistoryIndex === i ? '#2563eb' : '#e2e8f0'
+                  }}
+                >
+                  {h.date}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {patientHistory[activeHistoryIndex] && (
+            <>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '1rem',
+                background: '#f8fafc',
+                padding: '1rem',
+                borderRadius: '12px',
+                marginBottom: '1rem'
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Attending Physician</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>Dr. {patientHistory[activeHistoryIndex].doctorName || '—'}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Primary Diagnosis</span>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0f172a' }}>{patientHistory[activeHistoryIndex].diagnosis || 'No Diagnosis Recorded'}</span>
+                </div>
+                {patientHistory[activeHistoryIndex].complaints && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', gridColumn: '1 / -1' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>Complaints</span>
+                    <span style={{ fontSize: '0.8rem', color: '#475569', lineHeight: '1.4' }}>{patientHistory[activeHistoryIndex].complaints}</span>
+                  </div>
+                )}
+              </div>
+
+              {patientHistory[activeHistoryIndex].medicines && patientHistory[activeHistoryIndex].medicines.length > 0 && (
+                <div style={{ marginLeft: '4px', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Prescribed Medications</span>
+                    <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                    {patientHistory[activeHistoryIndex].medicines.map((m, i) => (
+                      <div key={i} style={{
+                        background: 'white',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        padding: '6px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                      }}>
+                        <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', background: '#eff6ff', padding: '2px 4px', borderRadius: '4px' }}>
+                          {m.type || 'MED'}
+                        </span>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#1e293b' }}>{m.name}</span>
+                        {m.dosage && <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '4px' }}>• {m.dosage}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                display: 'flex',
+                gap: '0.75rem',
+                flexDirection: window.innerWidth < 600 ? 'column' : 'row'
+              }}>
+                <button
+                  onClick={() => {
+                    const prevMeds = (patientHistory[activeHistoryIndex].medicines || []).map(m => ({
+                      ...m,
+                      id: Math.random().toString(36).substr(2, 9)
+                    }));
+                    setData(prev => ({
+                      ...prev,
+                      medicines: prevMeds.length > 0 ? prevMeds : prev.medicines,
+                      diagnosis: patientHistory[activeHistoryIndex].diagnosis || prev.diagnosis,
+                      complaints: patientHistory[activeHistoryIndex].complaints || prev.complaints,
+                      advice: patientHistory[activeHistoryIndex].advice || prev.advice
+                    }));
+                    alert('Previous clinical data copied successfully!');
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    background: '#2563eb',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)'
+                  }}
+                >
+                  🔄 Repeat Previous Rx
+                </button>
+                <button
+                  onClick={() => setIsViewModalOpen(true)}
+                  style={{
+                    flex: 1,
+                    padding: '0.75rem',
+                    background: '#ffffff',
+                    color: '#475569',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                  }}
+                >
+                  👁️ Full Detailed View
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {divider}
 
@@ -697,38 +942,59 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                           return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
                         })
                         .map((am, idx) => (
-                           <div
+                          <div
                             id={`suggestion-${index}-${idx}`}
                             key={am.id}
                             onClick={() => selectMedicine(index, am)}
                             onMouseEnter={() => updateMedicine(index, 'suggestionIndex', idx)}
                             style={{
-                              padding: '10px 12px',
-                              fontSize: '0.9rem',
+                              padding: '8px 12px',
+                              fontSize: '0.85rem',
                               cursor: 'pointer',
                               borderBottom: '1px solid #f1f5f9',
                               background: med.suggestionIndex === idx ? '#f0f4ff' : 'white',
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px'
+                              flexDirection: 'column',
+                              gap: '2px'
                             }}
                           >
-                            <span style={{ 
-                              color: '#2563eb', 
-                              fontWeight: 800, 
-                              visibility: med.suggestionIndex === idx ? 'visible' : 'hidden' 
-                            }}>
-                              ➔
-                            </span>
-                            <span style={{ fontWeight: 600, flex: 1 }}>
-                              {am.name}
-                            </span>
-                            {am.composition && (
-                              <span style={{ fontSize: '0.8rem', color: '#0284c7', paddingRight: '8px' }}>
-                                {am.composition}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{
+                                color: '#2563eb',
+                                fontWeight: 800,
+                                fontSize: '1rem',
+                                opacity: med.suggestionIndex === idx ? 1 : 0.2
+                              }}>
+                                ➔
                               </span>
+                              <span style={{ fontWeight: 700, color: '#0f172a', flex: 1 }}>
+                                {am.name}
+                              </span>
+                              <span style={{
+                                fontSize: '0.7rem',
+                                color: '#6366f1',
+                                background: '#eef2ff',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontWeight: 700,
+                                textTransform: 'uppercase'
+                              }}>
+                                {am.type}
+                              </span>
+                            </div>
+                            {am.composition && (
+                              <div style={{
+                                fontSize: '0.75rem',
+                                color: '#64748b',
+                                paddingLeft: '24px',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                fontStyle: 'italic'
+                              }}>
+                                {am.composition}
+                              </div>
                             )}
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>({am.type})</span>
                           </div>
                         ))
                       }
@@ -744,17 +1010,17 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                         const mappedAmType = typeMap[am.type] || am.type;
                         return mappedAmType?.toUpperCase() === med.type?.toUpperCase();
                       }).length === 0 && (
-                        <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: '#64748b' }}>No matches found</div>
-                      )}
+                          <div style={{ padding: '8px 12px', fontSize: '0.8rem', color: '#64748b' }}>No matches found</div>
+                        )}
                     </div>
                   )}
                 </div>
 
-                <input 
-                  className="medicine-qty-input" 
-                  placeholder="Qty" 
-                  value={med.qty} 
-                  onChange={(e) => updateMedicine(index, 'qty', e.target.value)} 
+                <input
+                  className="medicine-qty-input"
+                  placeholder="Qty"
+                  value={med.qty}
+                  onChange={(e) => updateMedicine(index, 'qty', e.target.value)}
                   style={{ fontWeight: 600 }}
                 />
 
@@ -1242,6 +1508,127 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
 
 
+      {/* ══ HISTORY PREVIEW MODAL ══ */}
+      {isViewModalOpen && patientHistory[activeHistoryIndex] && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.6)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: window.innerWidth < 600 ? '0' : '16px',
+            width: window.innerWidth < 600 ? '100%' : '90%',
+            maxWidth: '900px',
+            height: window.innerWidth < 600 ? '100%' : '90%',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+          }}>
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: '#f8fafc'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', fontWeight: 800 }}>Visit: {patientHistory[activeHistoryIndex].date}</h3>
+                <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b' }}>Gesture-ready Viewer</p>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  onClick={() => { setIsViewModalOpen(false); setIsModalZoomed(false); }}
+                  style={{
+                    background: '#f1f5f9',
+                    border: 'none',
+                    borderRadius: '10px',
+                    width: '32px',
+                    height: '32px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: '1.2rem',
+                    color: '#64748b'
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div
+              onClick={() => { if (window.innerWidth < 600) setIsModalZoomed(!isModalZoomed); }}
+              style={{
+                flex: '1 1 auto',
+                overflowY: 'auto',
+                padding: isModalZoomed ? '0' : (window.innerWidth < 600 ? '0.5rem' : '2rem'),
+                background: '#f1f5f9',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: isModalZoomed ? 'flex-start' : 'center',
+                cursor: window.innerWidth < 600 ? 'zoom-in' : 'default',
+                minHeight: 0
+              }}
+            >
+              <div style={{
+                background: 'white',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                width: '210mm',
+                transformOrigin: 'top center',
+                transform: isModalZoomed
+                  ? (window.innerWidth < 600 ? 'scale(0.85)' : 'scale(1)')
+                  : (window.innerWidth < 600 ? 'scale(0.35)' : window.innerWidth < 1000 ? 'scale(0.65)' : 'scale(1)'),
+                transition: 'transform 0.2s ease-out',
+                marginBottom: isModalZoomed
+                  ? '2rem'
+                  : (window.innerWidth < 600 ? 'calc((297mm * 0.35) - 297mm + 2rem)' : window.innerWidth < 1000 ? 'calc((297mm * 0.65) - 297mm + 2rem)' : '2rem'),
+                marginLeft: 'auto',
+                marginRight: 'auto'
+              }}>
+                <PrescriptionPreview data={{
+                  ...patientHistory[activeHistoryIndex],
+                  mrn: data.mrn,
+                  patientName: data.patientName,
+                  age: data.age,
+                  gender: data.gender,
+                  phone: data.phone,
+                  doctorQualifications: patientHistory[activeHistoryIndex].doctorQualifications || '',
+                  doctorRegNo: patientHistory[activeHistoryIndex].doctorRegNo || ''
+                }} />
+              </div>
+            </div>
+
+            <div style={{ padding: '1rem', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: '#f8fafc' }}>
+              <button
+                onClick={() => { setIsViewModalOpen(false); setIsModalZoomed(false); }}
+                style={{
+                  padding: '0.6rem 1.5rem',
+                  background: '#2563eb',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
