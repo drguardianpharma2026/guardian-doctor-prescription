@@ -20,6 +20,28 @@ const getNextAutomationMRN = (existingPatients) => {
   return '1';
 };
 
+const applyGenderPrefix = (name, gender) => {
+  let trimmedName = (name || '').trim();
+  const titles = ['Mr.', 'Mrs.', 'Ms.', 'Master.', 'Miss.', 'Dr.'];
+
+  let baseName = trimmedName;
+  for (const t of titles) {
+    if (trimmedName.toLowerCase().startsWith(t.toLowerCase() + ' ')) {
+      baseName = trimmedName.substring(t.length + 1).trim();
+      break;
+    } else if (trimmedName.toLowerCase() === t.toLowerCase()) {
+      baseName = '';
+      break;
+    }
+  }
+
+  let newPrefix = '';
+  if (gender === 'Male') newPrefix = 'Mr. ';
+  else if (gender === 'Female') newPrefix = 'Mrs. ';
+
+  return newPrefix + baseName;
+};
+
 const DoctorItem = ({ doc, isLast, onSelect, onDelete }) => {
   const [isConfirming, setIsConfirming] = React.useState(false);
 
@@ -234,16 +256,26 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
     alert('Doctor details saved!');
   };
 
-  const handleClearPatient = () => {
+  const handleClearPatient = async () => {
     if (confirm('Clear all patient and clinical data?')) {
+      let nextMRN = '';
+      try {
+        const allPatients = await databaseService.getAllPatients();
+        nextMRN = getNextAutomationMRN(allPatients || []);
+      } catch (e) {
+        console.error('Failed to get next MRN:', e);
+      }
+
       setPatientHistory([]);
       setActiveHistoryIndex(0);
       setData({
         ...data,
-        mrn: '', visitNo: '', patientName: '', age: '', gender: '', phone: '',
+        mrn: nextMRN, visitNo: '', patientName: '', age: '', gender: '', phone: '',
+        date: new Date().toISOString().split('T')[0],
         complaints: '', diagnosis: '',
         medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
-        advice: '', followUp: ''
+        advice: '', followUp: '',
+        weight: '', bp: '', pulse: '', temp: ''
       });
     }
   };
@@ -619,7 +651,14 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       <div className="form-grid-gender-phone">
         <div>
           <Label>Gender</Label>
-          <select value={data.gender} onChange={(e) => updateField('gender', e.target.value)}>
+          <select
+            value={data.gender}
+            onChange={(e) => {
+              const newGender = e.target.value;
+              const updatedName = applyGenderPrefix(data.patientName, newGender);
+              setData(prev => ({ ...prev, gender: newGender, patientName: updatedName }));
+            }}
+          >
             <option value="">Select</option>
             <option value="Male">Male</option>
             <option value="Female">Female</option>

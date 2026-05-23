@@ -42,7 +42,7 @@ const AdminDashboard = ({ onLogout }) => {
     mrn: '',
     patientName: '',
     age: '',
-    gender: 'Male',
+    gender: '',
     phone: '',
     weight: '',
     bp: '',
@@ -213,6 +213,11 @@ const AdminDashboard = ({ onLogout }) => {
       alert('Patient ID (MRN) and Patient Name are required.');
       return;
     }
+    const isDuplicate = patients.some(p => p.mrn.toString() === newPatient.mrn.toString());
+    if (isDuplicate) {
+      alert(`Patient ID (MRN) "${newPatient.mrn}" is already registered. Please use a unique ID or edit the existing record.`);
+      return;
+    }
     setIsSyncing(true);
     try {
       await databaseService.savePatient(newPatient);
@@ -378,11 +383,12 @@ const AdminDashboard = ({ onLogout }) => {
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button
                     onClick={() => {
+                      const nextMRN = getNextAutomationMRN(patients);
                       setNewPatient({
-                        mrn: '',
+                        mrn: nextMRN,
                         patientName: '',
                         age: '',
-                        gender: 'Male',
+                        gender: '',
                         phone: '',
                         weight: '',
                         bp: '',
@@ -583,6 +589,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ width: 60 }}>Age</th>
                       <th style={{ width: 60 }}>Sex</th>
                       <th>Phone</th>
+                      <th>Date</th>
                       <th>Weight</th>
                       <th>BP</th>
                       <th>Pulse</th>
@@ -602,6 +609,7 @@ const AdminDashboard = ({ onLogout }) => {
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.age}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.sex}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.phone}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block', whiteSpace: 'nowrap', fontSize: '0.7rem' }}>{p.updated_at ? new Date(p.updated_at).toLocaleDateString('en-IN') : '---'}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_weight}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_bp}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_pulse}</span></td>
@@ -850,6 +858,11 @@ const AdminDashboard = ({ onLogout }) => {
                       }
                     }}
                   />
+                  {newPatient.mrn && patients.some(p => p.mrn.toString() === newPatient.mrn.toString()) && (
+                    <span style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                      ⚠️ This MRN is already registered to a patient.
+                    </span>
+                  )}
                 </div>
                 <div className="form-field full-width">
                   <label>Patient Full Name *</label>
@@ -860,6 +873,11 @@ const AdminDashboard = ({ onLogout }) => {
                     value={newPatient.patientName}
                     onChange={(e) => setNewPatient({ ...newPatient, patientName: e.target.value })}
                   />
+                  {newPatient.patientName && newPatient.patientName.length > 3 && patients.some(p => p.name?.toLowerCase().trim() === newPatient.patientName.toLowerCase().trim()) && (
+                    <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                      💡 A patient with this name is already registered.
+                    </span>
+                  )}
                 </div>
                 <div className="form-field">
                   <label>Age</label>
@@ -874,12 +892,14 @@ const AdminDashboard = ({ onLogout }) => {
                   <label>Gender / Sex</label>
                   <select
                     value={newPatient.gender}
+                    required
                     onChange={(e) => {
                       const newGender = e.target.value;
                       const updatedName = applyGenderPrefix(newPatient.patientName, newGender);
                       setNewPatient({ ...newPatient, gender: newGender, patientName: updatedName });
                     }}
                   >
+                    <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                     <option value="Other">Other</option>
@@ -889,10 +909,15 @@ const AdminDashboard = ({ onLogout }) => {
                   <label>Contact Phone Number</label>
                   <input
                     type="tel"
-                    placeholder="Mobile or Landline Number..."
+                    placeholder="Enter Phone Number..."
                     value={newPatient.phone}
                     onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
                   />
+                  {newPatient.phone && newPatient.phone.length >= 10 && patients.some(p => p.phone === newPatient.phone) && (
+                    <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                      💡 This phone number is already registered to another patient.
+                    </span>
+                  )}
                 </div>
 
                 <div className="form-divider full-width">Vitals & Physical Metrics</div>
@@ -988,12 +1013,14 @@ const AdminDashboard = ({ onLogout }) => {
                   <label>Gender / Sex</label>
                   <select
                     value={editingPatient.gender}
+                    required
                     onChange={(e) => {
                       const newGender = e.target.value;
                       const updatedName = applyGenderPrefix(editingPatient.patientName, newGender);
                       setEditingPatient({ ...editingPatient, gender: newGender, patientName: updatedName });
                     }}
                   >
+                    <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
                     <option value="Other">Other</option>

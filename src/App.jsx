@@ -75,6 +75,25 @@ function App() {
         if (medicines) {
           setAdminMedicines(medicines);
         }
+
+        // Pre-fill next MRN if empty
+        const patients = await databaseService.getAllPatients();
+        if (patients && patients.length > 0) {
+          setData(prev => {
+            if (prev.mrn) return prev;
+            // Need getNextAutomationMRN here too, or replicate the logic
+            const numericMRNs = patients
+              .map(p => {
+                const trimmed = p.mrn?.trim() || '';
+                if (/^\d+$/.test(trimmed)) return parseInt(trimmed, 10);
+                return NaN;
+              })
+              .filter(num => !isNaN(num) && num >= 0);
+
+            const nextMRN = numericMRNs.length > 0 ? (Math.max(...numericMRNs) + 1).toString() : '1';
+            return { ...prev, mrn: nextMRN };
+          });
+        }
       } catch (err) {
         console.error('Failed to fetch master data:', err);
       }
@@ -327,7 +346,11 @@ function App() {
 
               <footer className="no-print" style={{ padding: '1.5rem 2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', borderTop: '1px solid var(--border)', marginTop: '2rem' }}>
                 <p>© 2026 Guardian Pharmacy & Clinic. All rights reserved.</p>
-                <p style={{ margin: '4px 0 0 0', fontWeight: 600 }}>Developed by <a href="mailto:noorulmuhsinbca@gmail.com" style={{ color: 'var(--primary)', textDecoration: 'none' }}>Muhsin</a></p>
+                <p style={{ margin: '4px 0 0 0', fontWeight: 600 }}>
+                  <a href="https://myportfoliomuhsin.vercel.app/" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
+                    Developed by <span style={{ color: 'var(--primary)' }}>Muhsin</span>
+                  </a>
+                </p>
               </footer>
             </div>
           ) : (

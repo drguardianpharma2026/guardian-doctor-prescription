@@ -61,7 +61,7 @@ const PrescriptionPreview = ({ data }) => {
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Date</span>
             <span style={{ margin: '0 4pt' }}>:</span>
-            <span style={{ fontWeight: 800 }}>{data.date || new Date().toLocaleDateString('en-GB')}</span>
+            <span style={{ fontWeight: 800 }}>{formatDate(data.date)}</span>
           </div>
         </div>
 
@@ -148,7 +148,7 @@ const PrescriptionPreview = ({ data }) => {
                   if (!med) return null;
                   // Only show row if at least one field has data
                   if (!med.name && !med.dosage && !med.timing) return null;
-                  
+
                   return (
                     <tr key={index}>
                       <td style={{ ...tdStyle, textAlign: 'center', fontWeight: 700 }}>{index + 1}</td>
@@ -194,20 +194,20 @@ const PrescriptionPreview = ({ data }) => {
         )}
 
         {/* ══ BOTTOM SECTION: REVIEW DATE & SIGNATURE ══ */}
-        <div style={{ 
+        <div style={{
           marginTop: 'auto',
           paddingBottom: '2cm',
-          display: 'flex', 
-          flexDirection: 'column', 
+          display: 'flex',
+          flexDirection: 'column',
           alignItems: 'flex-end',
           paddingRight: '1.2cm'
         }}>
           {data.followUp && (
-            <div style={{ 
-              fontSize: '10pt', 
-              fontWeight: 800, 
-              color: '#c0392b', 
-              border: '1.5px solid #c0392b', 
+            <div style={{
+              fontSize: '10pt',
+              fontWeight: 800,
+              color: '#c0392b',
+              border: '1.5px solid #c0392b',
               padding: '6pt 10pt',
               textTransform: 'uppercase',
               marginTop: '15pt',
@@ -221,7 +221,7 @@ const PrescriptionPreview = ({ data }) => {
           <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
             {/* Signature Label/Space Area (Small Gap) */}
             <div style={{ height: '25pt' }}></div>
-            
+
             {/* Doctor Model (Small Size) */}
             <div style={{ fontSize: '10.5pt', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.5pt' }}>
               {data.doctorName ? `Dr. ${data.doctorName},` : 'Dr. _________________,'}
@@ -229,11 +229,11 @@ const PrescriptionPreview = ({ data }) => {
             <div style={{ fontSize: '9pt', fontWeight: 700, textTransform: 'uppercase', marginBottom: '1.5pt' }}>
               {data.doctorQualifications || 'QUALIFICATIONS'}
             </div>
-            <div style={{ 
-              fontSize: '10pt', 
-              fontWeight: 600, 
-              color: '#333', 
-              maxWidth: '200pt', 
+            <div style={{
+              fontSize: '10pt',
+              fontWeight: 600,
+              color: '#333',
+              maxWidth: '200pt',
               lineHeight: 1.2,
               textTransform: 'uppercase'
             }}>
