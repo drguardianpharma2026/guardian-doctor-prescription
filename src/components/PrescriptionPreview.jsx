@@ -51,13 +51,12 @@ const PrescriptionPreview = ({ data }) => {
         zIndex: 10
       }}>
         {/* Row 1 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 1fr', gap: '10pt', marginBottom: '4pt' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10pt', marginBottom: '4pt' }}>
           <div>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>MRN</span>
             <span style={{ margin: '0 4pt' }}>:</span>
             <span style={{ fontWeight: 800 }}>{data.mrn || '-------'}</span>
           </div>
-          <div></div>
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Date</span>
             <span style={{ margin: '0 4pt' }}>:</span>
@@ -66,8 +65,8 @@ const PrescriptionPreview = ({ data }) => {
         </div>
 
         {/* Row 2 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr 0.8fr', gap: '10pt' }}>
-          <div>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.8fr', gap: '8pt', whiteSpace: 'nowrap' }}>
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Name</span>
             <span style={{ margin: '0 4pt' }}>:</span>
             <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{data.patientName || '------------------'}</span>
@@ -75,7 +74,7 @@ const PrescriptionPreview = ({ data }) => {
           <div style={{ textAlign: 'center' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Age/Sex</span>
             <span style={{ margin: '0 4pt' }}>:</span>
-            <span style={{ fontWeight: 800 }}>{data.age || '--'} / Y/{data.gender === 'Female' ? 'F' : data.gender === 'Male' ? 'M' : '-'}</span>
+            <span style={{ fontWeight: 800 }}>{data.age || '--'} Y / {data.gender === 'Female' ? 'F' : data.gender === 'Male' ? 'M' : '-'}</span>
           </div>
           <div style={{ textAlign: 'right' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Phone</span>

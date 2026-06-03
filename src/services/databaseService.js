@@ -26,17 +26,21 @@ export const databaseService = {
   // ── Patient / MRN ──
   async savePatient(patientData) {
     if (!patientData.mrn) return null;
-    return api('/api/patients', 'POST', {
+    const res = await api('/api/patients', 'POST', {
       mrn: patientData.mrn.toString(),
-      name: patientData.patientName || '',
+      name: patientData.patientName || patientData.name || '',
       age: parseInt(patientData.age) || 0,
-      sex: patientData.gender || '',
+      sex: patientData.gender || patientData.sex || '',
       phone: patientData.phone || '',
-      last_weight: patientData.weight || '',
-      last_bp: patientData.bp || '',
-      last_pulse: patientData.pulse || '',
-      last_temp: patientData.temp || '',
+      last_weight: patientData.weight || patientData.last_weight || '',
+      last_bp: patientData.bp || patientData.last_bp || '',
+      last_pulse: patientData.pulse || patientData.last_pulse || '',
+      last_temp: patientData.temp || patientData.last_temp || '',
+      dr_fees: patientData.dr_fees || '',
+      med_fees: patientData.med_fees || '',
     });
+    new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+    return res;
   },
 
   async getPatient(mrn) {
@@ -50,6 +54,48 @@ export const databaseService = {
 
   async deletePatient(mrn) {
     return api(`/api/patients?mrn=${encodeURIComponent(mrn)}`, 'DELETE');
+  },
+
+  // ── Fees & Visits ──
+  async saveFees(mrn, date, patientName, drFees, medFees) {
+    // Save to prescriptions history
+    const historyPromise = api('/api/prescriptions', 'POST', {
+      mrn: mrn.toString(),
+      date,
+      patient_name: patientName || '',
+      dr_fees: drFees || '',
+      med_fees: medFees || '',
+    });
+
+    // Save to fees history tracking table
+    const feesHistoryPromise = api('/api/fees', 'POST', {
+      mrn: mrn.toString(),
+      date,
+      dr_fees: drFees || '',
+      med_fees: medFees || '',
+    });
+
+    // Also save to patient record as fallback
+    const patientPromise = api('/api/patients', 'POST', {
+      mrn: mrn.toString(),
+      name: patientName || '',
+      dr_fees: drFees || '',
+      med_fees: medFees || '',
+    });
+
+    return Promise.all([historyPromise, feesHistoryPromise, patientPromise]);
+  },
+
+  async getFeesHistory(mrn, date) {
+    let url = '/api/fees';
+    if (mrn && date) url += `?mrn=${encodeURIComponent(mrn)}&date=${encodeURIComponent(date)}`;
+    else if (mrn) url += `?mrn=${encodeURIComponent(mrn)}`;
+    return api(url);
+  },
+
+  async deleteFeesHistory(mrn, date) {
+    if (!mrn || !date) return null;
+    return api(`/api/fees?mrn=${encodeURIComponent(mrn)}&date=${encodeURIComponent(date)}`, 'DELETE');
   },
 
   // ── Medicines ──
@@ -75,7 +121,7 @@ export const databaseService = {
 
   // ── Prescriptions ──
   async savePrescription(prescriptionData) {
-    return api('/api/prescriptions', 'POST', {
+    const res = await api('/api/prescriptions', 'POST', {
       mrn: prescriptionData.mrn,
       patient_name: prescriptionData.patientName,
       date: prescriptionData.date,
@@ -86,6 +132,7 @@ export const databaseService = {
       follow_up: prescriptionData.followUp || '',
       doctor_name: prescriptionData.doctorName || '',
       doctor_reg_no: prescriptionData.doctorRegNo || '',
+      visit_no: prescriptionData.visitNo || '',
       vitals: JSON.stringify({
         weight: prescriptionData.weight,
         bp: prescriptionData.bp,
@@ -93,15 +140,27 @@ export const databaseService = {
         temp: prescriptionData.temp,
       }),
     });
+    new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+    return res;
   },
 
-  async getPrescriptions() {
-    return api('/api/prescriptions');
+  async getPrescriptions(mrn, date) {
+    let url = '/api/prescriptions';
+    const params = [];
+    if (mrn) params.push(`mrn=${encodeURIComponent(mrn)}`);
+    if (date) params.push(`date=${encodeURIComponent(date)}`);
+    if (params.length > 0) url += '?' + params.join('&');
+    return api(url);
   },
 
   async getPrescriptionsByMRN(mrn) {
     if (!mrn) return [];
     return api(`/api/prescriptions?mrn=${encodeURIComponent(mrn)}`);
+  },
+
+  async deletePrescription(mrn, date) {
+    if (!mrn || !date) return null;
+    return api(`/api/prescriptions?mrn=${encodeURIComponent(mrn)}&date=${encodeURIComponent(date)}`, 'DELETE');
   },
 
   async clearAllPrescriptions() {

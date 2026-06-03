@@ -69,3 +69,14 @@ CREATE TABLE IF NOT EXISTS doctors (
   role           TEXT,
   reg_no         TEXT
 );
+
+-- 7. Fees history tracking
+CREATE TABLE IF NOT EXISTS fees_history (
+  id          SERIAL PRIMARY KEY,
+  mrn         TEXT,
+  date        TEXT,
+  dr_fees     TEXT,
+  med_fees    TEXT,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+

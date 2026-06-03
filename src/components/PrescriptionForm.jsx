@@ -271,7 +271,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       setData({
         ...data,
         mrn: nextMRN, visitNo: '', patientName: '', age: '', gender: '', phone: '',
-        date: new Date().toISOString().split('T')[0],
+        date: new Date().toLocaleDateString('en-CA'),
         complaints: '', diagnosis: '',
         medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
         advice: '', followUp: '',
@@ -404,8 +404,15 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           });
           setPatientHistory(history);
           setActiveHistoryIndex(0);
+
+          // Update Visit Number automatically
+          setData(prev => ({
+            ...prev,
+            visitNo: (history.length + 1).toString()
+          }));
         } else {
           setPatientHistory([]);
+          setData(prev => ({ ...prev, visitNo: '1' }));
         }
       } catch (err) {
         console.error('Error fetching patient live:', err);
@@ -619,6 +626,15 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         <div>
           <Label>Date</Label>
           <input type="date" value={data.date} onChange={(e) => updateField('date', e.target.value)} />
+        </div>
+        <div>
+          <Label>Visit No</Label>
+          <input
+            type="text"
+            value={data.visitNo || ''}
+            onChange={(e) => updateField('visitNo', e.target.value)}
+            placeholder="1"
+          />
         </div>
       </div>
 
@@ -883,12 +899,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
         <div>
-          <Label>Chief Complaints (one per line)</Label>
-          <textarea rows="2" value={data.complaints} onChange={(e) => updateField('complaints', e.target.value)} placeholder="Pain right knee&#10;Swelling" />
+          <Label>Chief Complaints (press Enter for new line)</Label>
+          <textarea
+            rows="5"
+            value={data.complaints}
+            onChange={(e) => updateField('complaints', e.target.value)}
+            placeholder="Pain right knee&#10;Swelling"
+            style={{ minHeight: '120px', fontSize: '1rem', background: '#fcfdff', borderColor: '#d1e0f3' }}
+          />
         </div>
         <div>
-          <Label>Provisional Diagnosis (one per line)</Label>
-          <textarea rows="2" value={data.diagnosis} onChange={(e) => updateField('diagnosis', e.target.value)} placeholder="Osteoarthritis&#10;Synovitis" />
+          <Label>Provisional Diagnosis (press Enter for new line)</Label>
+          <textarea
+            rows="5"
+            value={data.diagnosis}
+            onChange={(e) => updateField('diagnosis', e.target.value)}
+            placeholder="Osteoarthritis&#10;Synovitis"
+            style={{ minHeight: '120px', fontSize: '1rem', background: '#fcfdff', borderColor: '#d1e0f3' }}
+          />
         </div>
       </div>
 
@@ -1480,9 +1508,15 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>}
       />
 
-      <div style={{ marginBottom: '0.75rem' }}>
+      <div style={{ marginBottom: '1.25rem' }}>
         <Label>Advice (one per line)</Label>
-        <textarea rows="3" value={data.advice} onChange={(e) => updateField('advice', e.target.value)} placeholder="Physio advised&#10;Hot water massage&#10;Exercises" />
+        <textarea
+          rows="6"
+          value={data.advice}
+          onChange={(e) => updateField('advice', e.target.value)}
+          placeholder="Physio advised&#10;Hot water massage&#10;Exercises"
+          style={{ minHeight: '150px', fontSize: '1rem', background: '#fafffa', borderColor: '#dcfce7' }}
+        />
       </div>
 
       <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border)' }}>

@@ -62,6 +62,18 @@ textarea {
   width: 100%;
 }
 
+/* Class to hide spin buttons for specific number inputs (used for Fees/Amount) */
+.no-spinners::-webkit-outer-spin-button,
+.no-spinners::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+.no-spinners {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -224,6 +236,20 @@ textarea:focus {
   min-width: 0;
 }
 
+
+.sidebar-section {
+  position: sticky;
+  top: calc(var(--header-height) + 20px);
+  height: calc(100vh - var(--header-height) - 40px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.sidebar-section.tab-hidden {
+  display: none !important;
+}
 
 .preview-section {
   position: sticky;

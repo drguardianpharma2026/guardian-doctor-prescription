@@ -7,6 +7,7 @@ import AdminLogin from './components/AdminLogin.jsx'
 import AdminDashboard from './components/AdminDashboard.jsx'
 import UserLogin from './components/UserLogin.jsx'
 import UserSignup from './components/UserSignup.jsx'
+import TodayOP from './components/TodayOP.jsx'
 import { databaseService } from './services/databaseService.js'
 
 function App() {
@@ -25,13 +26,15 @@ function App() {
 
   // Load saved doctors
   const [savedDoctors, setSavedDoctors] = useState([])
+  const [todayOPPatients, setTodayOPPatients] = useState([])
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true)
 
   const [data, setData] = useState({
     clinicName: '',
     phone1: '',
     mrn: '',
     visitNo: '',
-    date: new Date().toISOString().split('T')[0],
+    date: new Date().toLocaleDateString('en-CA'),
     patientName: '',
     age: '',
     gender: '',
@@ -81,7 +84,6 @@ function App() {
         if (patients && patients.length > 0) {
           setData(prev => {
             if (prev.mrn) return prev;
-            // Need getNextAutomationMRN here too, or replicate the logic
             const numericMRNs = patients
               .map(p => {
                 const trimmed = p.mrn?.trim() || '';
@@ -94,11 +96,39 @@ function App() {
             return { ...prev, mrn: nextMRN };
           });
         }
+
+        // Fetch Today's OP patients
+        const today = new Date().toLocaleDateString('en-CA');
+        const prescriptions = await databaseService.getPrescriptions(null, today);
+        if (prescriptions) {
+          // We need patient details for these prescriptions
+          const patientList = await Promise.all(
+            prescriptions.map(async (rx) => {
+              const p = await databaseService.getPatient(rx.mrn);
+              return { ...p, rx_id: rx.id, rx_date: rx.date };
+            })
+          );
+          setTodayOPPatients(patientList.filter(p => !!p.mrn));
+        }
       } catch (err) {
         console.error('Failed to fetch master data:', err);
       }
     };
     fetchMasterData();
+
+    // Listen for sync events (e.g. from TodayOP or Admin tabs)
+    const syncChannel = new BroadcastChannel('nexusrx_sync');
+    syncChannel.onmessage = (event) => {
+      if (event.data === 'refresh') fetchMasterData();
+    };
+
+    // Polling as a secondary "live" automation (every 20s)
+    const poll = setInterval(fetchMasterData, 20000);
+
+    return () => {
+      syncChannel.close();
+      clearInterval(poll);
+    };
   }, []);
 
   // Update data when clinic settings change
@@ -197,6 +227,9 @@ function App() {
       try {
         await databaseService.savePatient(data);
         await databaseService.savePrescription(data);
+        // Live automation pulse
+        new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+
         if (isManual) {
           alert('Saved to Neon Database successfully!');
         }
@@ -268,10 +301,8 @@ function App() {
         <Route path="/login" element={<UserLogin onLogin={handleUserLogin} />} />
         <Route path="/signup" element={<UserSignup onSignup={handleUserLogin} />} />
         <Route path="/admin-login" element={<AdminLogin onLogin={handleLogin} />} />
-        <Route
-          path="/admin"
-          element={isAdmin ? <AdminDashboard onLogout={handleLogout} /> : <Navigate to="/admin-login" />}
-        />
+        <Route path="/admin" element={isAdmin ? <AdminDashboard onLogout={handleLogout} /> : <Navigate to="/admin-login" />} />
+        <Route path="/today-op" element={isAdmin ? <TodayOP /> : <Navigate to="/admin-login" />} />
         <Route path="/" element={
           isUserAuthenticated ? (
             <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -289,21 +320,111 @@ function App() {
                 </button>
               </div>
 
-              <main className="app-main">
+              <main className="app-main" style={{
+                gridTemplateColumns: isSidebarVisible ? '280px 1.2fr 0.8fr' : '1.2fr 0.8fr',
+                maxWidth: '100%',
+                padding: '1rem'
+              }}>
+                {/* ── Today's OP Sidebar ── */}
+                <aside className={`sidebar-section desktop-only ${!isSidebarVisible ? 'tab-hidden' : ''}`} style={{
+                  background: 'white',
+                  borderRadius: '20px',
+                  border: '1px solid var(--border)',
+                  padding: '1.25rem',
+                  height: 'calc(100vh - var(--header-height) - 40px)',
+                  position: 'sticky',
+                  top: 'calc(var(--header-height) + 20px)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h3 style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.02em', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      Today's OP List
+                      <span style={{
+                        fontSize: '0.65rem', background: '#ecfdf5', color: '#059669',
+                        padding: '2px 8px', borderRadius: '20px', display: 'inline-flex',
+                        alignItems: 'center', gap: '4px', border: '1px solid #10b981'
+                      }}>
+                        <span style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
+                        LIVE
+                      </span>
+                    </h3>
+                    <button onClick={() => setIsSidebarVisible(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+                  </div>
+
+                  <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px' }}>
+                    {todayOPPatients.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', marginTop: '2rem' }}>No patients registered today.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {todayOPPatients.map(p => (
+                          <button
+                            key={p.mrn}
+                            onClick={() => {
+                              setData(prev => ({
+                                ...prev,
+                                mrn: p.mrn,
+                                patientName: p.name || prev.patientName,
+                                age: p.age || prev.age,
+                                gender: p.sex || prev.gender,
+                                phone: p.phone || prev.phone,
+                                weight: p.last_weight || prev.weight,
+                                bp: p.last_bp || prev.bp,
+                                pulse: p.last_pulse || prev.pulse,
+                                temp: p.last_temp || prev.temp
+                              }));
+                            }}
+                            style={{
+                              textAlign: 'left',
+                              padding: '10px 12px',
+                              borderRadius: '12px',
+                              border: '1px solid',
+                              background: data.mrn === p.mrn ? 'var(--primary-subtle)' : 'white',
+                              borderColor: data.mrn === p.mrn ? 'var(--primary)' : 'var(--border)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: data.mrn === p.mrn ? 'var(--primary)' : '#1e293b' }}>
+                              {p.name}
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
+                              <span style={{ fontSize: '0.7rem', color: '#64748b' }}>MRN: {p.mrn}</span>
+                              <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{p.age} {p.sex}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </aside>
+
                 <section className={`form-section no-print ${activeTab === 'form' ? 'tab-active' : 'tab-hidden'}`}>
                   <div className="section-header-bar" style={{ marginBottom: '1.25rem' }}>
-                    <h2 className="section-title">Create Prescription</h2>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      {!isSidebarVisible && (
+                        <button
+                          onClick={() => setIsSidebarVisible(true)}
+                          className="desktop-only"
+                          style={{ background: 'var(--primary-subtle)', color: 'var(--primary)', border: 'none', borderRadius: '6px', padding: '6px 10px', fontWeight: 700, fontSize: '0.75rem' }}
+                        >
+                          ☰ OP List
+                        </button>
+                      )}
+                      <h2 className="section-title">Create Prescription</h2>
+                    </div>
                     <div className="action-btns desktop-only">
                       <button onClick={() => handleAutoSave(true)} className="print-btn" style={{ background: '#2563eb' }}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>
                         Save
                       </button>
                       <button onClick={handleShare} className="print-btn" style={{ background: '#43a047' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.41" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></svg>
                         Share
                       </button>
-                      <button onClick={handlePrint} className="print-btn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></svg>
+                      <button onClick={handlePrint} className="print-btn" style={{ background: 'var(--text)' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>
                         Print
                       </button>
                     </div>
