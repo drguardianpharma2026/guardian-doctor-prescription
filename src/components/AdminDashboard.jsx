@@ -83,6 +83,17 @@ const AdminDashboard = ({ onLogout }) => {
   const [opFees, setOpFees] = useState({}) // { [mrn]: { drFees: '', medFees: '', total: '' } }
   const [pendingDeleteMrn, setPendingDeleteMrn] = useState(null) // Today OP inline confirm
   const [pendingDeletePatientMrn, setPendingDeletePatientMrn] = useState(null) // Patient Records inline confirm
+  const [isDoctorAccountEditModalOpen, setIsDoctorAccountEditModalOpen] = useState(false)
+  const [editingDoctorAccount, setEditingDoctorAccount] = useState({
+    id: '',
+    name: '',
+    phone: '',
+    password: '',
+    qualification: '',
+    consultant: '',
+    reg_no: ''
+  })
+  const [isActionBusy, setIsActionBusy] = useState(false)
 
   const fetchAllData = React.useCallback(async () => {
     setIsSyncing(true);
@@ -296,6 +307,23 @@ const AdminDashboard = ({ onLogout }) => {
     }
   }
 
+  const handleEditDoctorAccount = async (e) => {
+    e.preventDefault();
+    console.log('Starting doctor account update for:', editingDoctorAccount);
+    setIsActionBusy(true);
+    try {
+      await databaseService.updateUser(editingDoctorAccount);
+      setIsDoctorAccountEditModalOpen(false);
+      await fetchAllData();
+      alert('Doctor account updated successfully!');
+    } catch (err) {
+      console.error('Failed to update doctor account:', err);
+      alert('Failed to update: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsActionBusy(false);
+    }
+  };
+
   const handleDeleteUser = async (id) => {
     const user = users.find(u => u.id === id);
     if (!user) return;
@@ -464,7 +492,7 @@ const AdminDashboard = ({ onLogout }) => {
       {/* ── Sidebar ── */}
       <aside className={`excel-sidebar ${isSidebarOpen ? 'mobile-open' : ''}`}>
         <div className="excel-logo">
-          <div className="logo-box">G</div>
+          <img src="/logo.png" alt="Guardian Logo" style={{ width: '38px', height: '38px', objectFit: 'contain', borderRadius: '6px', flexShrink: 0 }} />
           <span>Guardian Admin</span>
           <button className="sidebar-close-x" onClick={() => setIsSidebarOpen(false)}>×</button>
         </div>
@@ -1031,28 +1059,32 @@ const AdminDashboard = ({ onLogout }) => {
                       <td>
                         <input
                           value={user.name}
-                          onChange={(e) => handleUpdateUser(user.id, 'name', e.target.value)}
+                          readOnly
+                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="Doctor Name..."
                         />
                       </td>
                       <td>
                         <input
                           value={user.qualification || ''}
-                          onChange={(e) => handleUpdateUser(user.id, 'qualification', e.target.value)}
+                          readOnly
+                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="MBBS, MD..."
                         />
                       </td>
                       <td>
                         <input
                           value={user.consultant || ''}
-                          onChange={(e) => handleUpdateUser(user.id, 'consultant', e.target.value)}
+                          readOnly
+                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="Consultant..."
                         />
                       </td>
                       <td>
                         <input
-                          value={user.regNo || ''}
-                          onChange={(e) => handleUpdateUser(user.id, 'regNo', e.target.value)}
+                          value={user.reg_no || user.regNo || ''}
+                          readOnly
+                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="Reg No..."
                         />
                       </td>
@@ -1067,12 +1099,34 @@ const AdminDashboard = ({ onLogout }) => {
                         <input
                           type="text"
                           value={user.password}
-                          onChange={(e) => handleUpdateUser(user.id, 'password', e.target.value)}
+                          readOnly
+                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="Password..."
                         />
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <button onClick={() => handleDeleteUser(user.id)} className="excel-del-row">×</button>
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button
+                            onClick={() => {
+                              setEditingDoctorAccount({
+                                id: user.id,
+                                name: user.name || '',
+                                phone: user.phone || '',
+                                password: user.password || '',
+                                qualification: user.qualification || '',
+                                consultant: user.consultant || '',
+                                reg_no: user.reg_no || user.regNo || ''
+                              });
+                              setIsDoctorAccountEditModalOpen(true);
+                            }}
+                            className="excel-del-row"
+                            style={{ color: '#2563eb' }}
+                            title="Edit Doctor Account"
+                          >
+                            ✏️
+                          </button>
+                          <button onClick={() => handleDeleteUser(user.id)} className="excel-del-row" title="Delete Account">×</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1133,7 +1187,7 @@ const AdminDashboard = ({ onLogout }) => {
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.age}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.sex}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.phone}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block', whiteSpace: 'nowrap', fontSize: '0.7rem' }}>{p.updated_at ? new Date(p.updated_at).toLocaleDateString('en-IN') : '---'}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block', whiteSpace: 'nowrap', fontSize: '0.7rem' }}>{p.registration_date || (p.updated_at ? new Date(p.updated_at).toLocaleDateString('en-IN') : '---')}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_weight}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_bp}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.last_pulse}</span></td>
@@ -1160,7 +1214,8 @@ const AdminDashboard = ({ onLogout }) => {
                                       weight: p.last_weight || '',
                                       bp: p.last_bp || '',
                                       pulse: p.last_pulse || '',
-                                      temp: p.last_temp || ''
+                                      temp: p.last_temp || '',
+                                      registration_date: p.registration_date || ''
                                     });
                                     setIsEditModalOpen(true);
                                   }}
@@ -1335,13 +1390,14 @@ const AdminDashboard = ({ onLogout }) => {
                             '<title>Prescription Preview</title>' +
                             '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
                             '<style>' +
+                            '@page { margin: 0; }' +
                             '* { box-sizing: border-box; margin: 0; padding: 0; }' +
                             'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
                             '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
                             '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
                             '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
-                            '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 0.8cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
-                            '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } }' +
+                            '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 1.2cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
+                            '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } #prescription-paper { box-shadow: none !important; padding-top: 1cm !important; margin: 0 !important; } }' +
                             '</style>' +
                             '</head>' +
                             '<body>' +
@@ -1463,6 +1519,83 @@ const AdminDashboard = ({ onLogout }) => {
         </div>
       )}
 
+      {/* ── Doctor Account Edit Modal ── */}
+      {isDoctorAccountEditModalOpen && (
+        <div className="admin-modal-overlay">
+          <div className="registration-modal-content">
+            <div className="registration-modal-header">
+              <h2>Edit Doctor Account</h2>
+              <button className="registration-close-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)}>×</button>
+            </div>
+            <form onSubmit={handleEditDoctorAccount} className="registration-form">
+              <div className="form-grid">
+                <div className="form-field full-width">
+                  <label>Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingDoctorAccount.name}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, name: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Mobile Number *</label>
+                  <input
+                    type="tel"
+                    required
+                    value={editingDoctorAccount.phone}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, phone: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Login Password *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingDoctorAccount.password}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, password: e.target.value })}
+                  />
+                </div>
+                <div className="form-field full-width">
+                  <label>Qualification</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. MBBS, MD"
+                    value={editingDoctorAccount.qualification}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, qualification: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Consultant Role</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. General Physician"
+                    value={editingDoctorAccount.consultant}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, consultant: e.target.value })}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>Registry Number</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Reg No. 12345"
+                    value={editingDoctorAccount.reg_no}
+                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, reg_no: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="registration-actions">
+                <button type="button" className="cancel-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)} disabled={isActionBusy}>Cancel</button>
+                <button type="submit" className="submit-btn" disabled={isActionBusy}>
+                  {isActionBusy ? 'Saving...' : '💾 Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── Pick Existing Patient Modal ── */}
       {isPickPatientModalOpen && (
         <div style={{
@@ -1527,6 +1660,8 @@ const AdminDashboard = ({ onLogout }) => {
           </div>
         </div>
       )}
+
+      {/* ── Patient Registration Modal ── */}
       {isRegisterModalOpen && (
         <div className="admin-modal-overlay">
           <div className="registration-modal-content">
@@ -1948,12 +2083,13 @@ const AdminDashboard = ({ onLogout }) => {
         .excel-add-btn { background: #2563eb; color: white; border: none; padding: 6px 15px; border-radius: 4px; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
 
         /* The Grid Table */
-        .excel-content { flex: 1; overflow: auto; padding: 0; background: white; }
-        .grid-container { min-width: 100%; }
+        .excel-content { flex: 1; overflow-x: auto; overflow-y: auto; padding: 0; background: white; -webkit-overflow-scrolling: touch; }
+        .grid-container { min-width: max-content; width: 100%; }
         .excel-table {
+          min-width: 700px;
           width: 100%;
           border-collapse: collapse;
-          table-layout: fixed;
+          table-layout: auto;
           font-size: 0.78rem;
         }
         .excel-table th {
@@ -1967,12 +2103,14 @@ const AdminDashboard = ({ onLogout }) => {
           border-bottom: 2px solid #e5e7eb;
           border-right: 1px solid #e5e7eb;
           z-index: 10;
+          white-space: nowrap;
         }
         .excel-table td {
           border-bottom: 1px solid #e5e7eb;
           border-right: 1px solid #e5e7eb;
           padding: 0;
           vertical-align: middle;
+          white-space: nowrap;
         }
         .fee-td {
           text-align: center !important;
@@ -2411,14 +2549,32 @@ const AdminDashboard = ({ onLogout }) => {
             justify-content: center;
           }
 
-          /* Scrollable grids on mobile */
+          /* Mobile table scrolling */
           .excel-content {
-            overflow: auto;
-            -webkit-overflow-scrolling: touch;
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding: 0 !important;
           }
           .grid-container {
-            width: 100%;
-            overflow-x: auto;
+            min-width: max-content !important;
+          }
+          .excel-table {
+            min-width: 750px !important;
+            table-layout: auto !important;
+          }
+          .excel-table th {
+            white-space: nowrap !important;
+            font-size: 0.78rem !important;
+            padding: 8px 10px !important;
+          }
+          .excel-table td {
+            white-space: nowrap !important;
+            padding: 0 !important;
+          }
+          .excel-table input, .excel-table select {
+            min-width: 90px !important;
+            width: 100% !important;
           }
 
           /* Modal Stack on Mobile */
@@ -2426,78 +2582,94 @@ const AdminDashboard = ({ onLogout }) => {
             flex-direction: column;
             height: 95vh;
             width: 100%;
+            max-width: 100vw;
           }
           .admin-modal-sidebar {
             width: 100%;
-            max-height: 200px;
+            max-height: 170px;
+            min-height: 130px;
             border-right: none;
             border-bottom: 1px solid #e2e8f0;
+            flex-shrink: 0;
           }
           .sidebar-list {
             display: flex;
             gap: 10px;
             overflow-x: auto;
             overflow-y: hidden;
-            padding: 10px;
+            padding: 8px 10px;
           }
           .sidebar-item {
             margin-bottom: 0;
             flex-shrink: 0;
-            width: 190px;
-            padding: 8px 12px;
+            width: 180px;
+            padding: 8px 10px;
           }
           .modal-close-btn {
-            display: none; /* Let Close Viewer button live in the sidebar header or as top close button */
+            display: none;
           }
           .sidebar-header {
-            padding: 10px 15px;
+            padding: 8px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
           }
           .sidebar-header h3 {
-            font-size: 0.95rem;
+            font-size: 0.9rem;
           }
-          
-
-          
           .admin-modal-preview {
             flex: 1;
-            height: calc(100% - 200px);
+            min-height: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
           }
           .preview-toolbar {
-            padding: 10px 15px;
-            flex-direction: column;
+            padding: 8px 12px;
+            flex-direction: row;
             gap: 8px;
-            align-items: flex-start;
+            align-items: center;
+            flex-wrap: wrap;
+            flex-shrink: 0;
           }
           .preview-toolbar .toolbar-actions {
-            width: 100%;
+            flex: 1;
           }
           .preview-toolbar .print-btn {
             width: 100%;
             justify-content: center;
           }
-          
-          /* Scale A4 down for mobile screen width */
+
+          /* Scale A4 to fit mobile width — fills the panel properly */
           .preview-paper-scroller {
-            padding: 10px;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
           }
           .paper-scale-container {
-            transform: scale(0.55);
             transform-origin: top center;
+            /* 210mm ≈ 794px. A mobile width ~390px → scale ≈ 390/794 ≈ 0.49 */
+            transform: scale(0.49);
             width: 210mm;
-            height: auto;
+            /* compensate lost height so scroll works: margin-bottom = (scale - 1) * original_height */
+            margin-bottom: calc((0.49 - 1) * 297mm);
+            flex-shrink: 0;
           }
         }
 
         @media (max-width: 480px) {
           .paper-scale-container {
-            transform: scale(0.42);
+            /* Slightly smaller viewport: ~360px → scale ≈ 360/794 ≈ 0.45 */
+            transform: scale(0.45);
+            margin-bottom: calc((0.45 - 1) * 297mm);
           }
         }
       ` }} />
-    </div>
+    </div >
   )
 }
 

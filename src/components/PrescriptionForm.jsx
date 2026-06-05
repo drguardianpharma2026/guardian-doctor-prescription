@@ -153,9 +153,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
   };
 
   const setFollowUpInDays = (days) => {
-    const today = new Date();
-    const futureDate = new Date(today);
-    futureDate.setDate(today.getDate() + days);
+    // Use the form's date as the base, or today if not set
+    const baseDate = data.date ? new Date(data.date) : new Date();
+    const futureDate = new Date(baseDate);
+    futureDate.setDate(baseDate.getDate() + days);
 
     const year = futureDate.getFullYear();
     const month = String(futureDate.getMonth() + 1).padStart(2, '0');
@@ -271,7 +272,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       setData({
         ...data,
         mrn: nextMRN, visitNo: '', patientName: '', age: '', gender: '', phone: '',
-        date: new Date().toLocaleDateString('en-CA'),
+        date: data.date, // Preserve specifically chosen date
         complaints: '', diagnosis: '',
         medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '', showDosageTips: false, showTimingTips: false, showDurationTips: false, showScheduleTips: false }],
         advice: '', followUp: '',
@@ -329,7 +330,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
   ];
 
   const quickDosages = [
-    'OD MOR 1-0-0',
+    'OD 1-0-0',
     'OD 0-1-0',
     'OD 0-0-1',
     'BD 1-0-1',
@@ -625,7 +626,18 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
         <div>
           <Label>Date</Label>
-          <input type="date" value={data.date} onChange={(e) => updateField('date', e.target.value)} />
+          <input
+            type="date"
+            value={data.date}
+            onChange={(e) => updateField('date', e.target.value)}
+            style={{
+              color: '#000000',
+              fontWeight: 800,
+              border: '1px solid #cbd5e1',
+              borderRadius: '6px',
+              padding: '6px'
+            }}
+          />
         </div>
         <div>
           <Label>Visit No</Label>

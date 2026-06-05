@@ -6,20 +6,33 @@
  */
 
 const api = async (path, method = 'GET', body = null) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
   const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
+    signal: controller.signal,
   };
   if (body !== null) opts.body = JSON.stringify(body);
 
-  const res = await fetch(path, opts);
-  const text = await res.text();
+  try {
+    const res = await fetch(path, opts);
+    clearTimeout(timeoutId);
+    const text = await res.text();
 
-  if (!res.ok) {
-    throw new Error(`Database Error: ${text}`);
+    if (!res.ok) {
+      throw new Error(`Database Error: ${text || res.statusText}`);
+    }
+    if (!text) return null;
+    return JSON.parse(text);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error('Database Request Timed Out (15s). Please check your connection.');
+    }
+    throw err;
   }
-  if (!text) return null;
-  return JSON.parse(text);
 };
 
 export const databaseService = {
@@ -38,6 +51,7 @@ export const databaseService = {
       last_temp: patientData.temp || patientData.last_temp || '',
       dr_fees: patientData.dr_fees || '',
       med_fees: patientData.med_fees || '',
+      registration_date: patientData.registration_date || patientData.date || '',
     });
     new BroadcastChannel('nexusrx_sync').postMessage('refresh');
     return res;

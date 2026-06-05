@@ -21,24 +21,18 @@ const Header = ({ onLogout }) => {
     }}>
       {/* Logo + Title */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0, flex: 1 }}>
-        {/* Guardian 'G' Logo */}
-        <div style={{
-          width: '38px',
-          height: '38px',
-          flexShrink: 0,
-          background: 'var(--primary)',
-          borderRadius: '10px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'white',
-          fontSize: '1.2rem',
-          fontWeight: 900,
-          fontFamily: 'serif',
-          boxShadow: '0 4px 10px rgba(21,101,192,0.3)',
-        }}>
-          G
-        </div>
+        {/* Guardian Logo */}
+        <img
+          src="/logo.png"
+          alt="Guardian Logo"
+          style={{
+            width: '42px',
+            height: '42px',
+            flexShrink: 0,
+            objectFit: 'contain',
+            borderRadius: '8px',
+          }}
+        />
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: '0.95rem', marginBottom: '-2px', color: 'var(--primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Guardian Pharmacy</h1>
           <p style={{ fontSize: '0.62rem', color: 'var(--secondary)', fontWeight: 500, letterSpacing: '0.04em' }}>PRESCRIPTION BUILDER</p>
@@ -102,7 +96,7 @@ const Header = ({ onLogout }) => {
           onMouseEnter={(e) => e.currentTarget.style.background = '#fee2e2'}
           onMouseLeave={(e) => e.currentTarget.style.background = '#fef2f2'}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
           <span className="logout-text">Logout</span>
         </button>
       </div>

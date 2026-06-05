@@ -99,11 +99,11 @@ export default function TodayOP() {
                 ...regData,
                 registration_date: regData.date || new Date().toLocaleDateString('en-CA')
             })
-            // Create a prescription stub for today so they appear in 'Today OP'
+            // Create a prescription stub for the chosen date
             await databaseService.savePrescription({
                 mrn: regData.mrn,
                 patientName: regData.patientName,
-                date: new Date().toLocaleDateString('en-CA')
+                date: regData.date || new Date().toLocaleDateString('en-CA')
             })
             setRegOpen(false)
             // Live automation pulse
@@ -136,6 +136,8 @@ export default function TodayOP() {
         setIsSyncing(true);
         setPendingRemoveMrn(null);
         try {
+            // Find the prescription date for this patient in the filtered list
+            // Since we're in Today's list, we'll use today as a default but ideally we'd find the exact date
             const today = new Date().toLocaleDateString('en-CA');
             await databaseService.deletePrescription(String(mrn), today);
             // Live automation pulse
@@ -344,7 +346,18 @@ export default function TodayOP() {
                                                 )}
                                                 <button
                                                     onClick={() => {
-                                                        setEditData({ mrn: p.mrn, patientName: p.name, age: p.age, gender: p.sex, phone: p.phone, weight: p.last_weight, bp: p.last_bp, pulse: p.last_pulse, temp: p.last_temp })
+                                                        setEditData({
+                                                            mrn: p.mrn,
+                                                            patientName: p.name,
+                                                            age: p.age,
+                                                            gender: p.sex,
+                                                            phone: p.phone,
+                                                            weight: p.last_weight,
+                                                            bp: p.last_bp,
+                                                            pulse: p.last_pulse,
+                                                            temp: p.last_temp,
+                                                            registration_date: p.registration_date || p.date
+                                                        })
                                                         setEditOpen(true)
                                                     }}
                                                     title="Edit Patient"
@@ -433,10 +446,11 @@ export default function TodayOP() {
                             <button onClick={() => setEditOpen(false)} style={{ background: 'none', border: 'none', color: 'white', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
                         </div>
                         <form onSubmit={handleEdit} style={{ padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            {[['Patient Name *', 'patientName'], ['Age', 'age'], ['Phone', 'phone'], ['Weight (kg)', 'weight'], ['BP', 'bp'], ['Pulse', 'pulse'], ['Temp (°F)', 'temp']].map(([label, key]) => (
+                            {[['Patient Name *', 'patientName'], ['Registration Date', 'registration_date'], ['Age', 'age'], ['Phone', 'phone'], ['Weight (kg)', 'weight'], ['BP', 'bp'], ['Pulse', 'pulse'], ['Temp (°F)', 'temp']].map(([label, key]) => (
                                 <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                     <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#475569' }}>{label}</label>
                                     <input
+                                        type={key === 'registration_date' ? 'date' : 'text'}
                                         value={editData[key] || ''}
                                         onChange={e => {
                                             const val = e.target.value

@@ -36,9 +36,34 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'PATCH') {
-      const { phone, ...updates } = req.body;
-      if (!phone) return res.status(400).json({ error: 'phone required' });
-      await sql`UPDATE "dr login" SET name = ${updates.name}, qualification = ${updates.qualification}, consultant = ${updates.consultant}, reg_no = ${updates.reg_no} WHERE phone = ${phone}`;
+      const { id, phone, name, qualification, consultant, regNo, reg_no, password } = req.body;
+      console.log('PATCH /api/auth receiving:', req.body);
+      const finalRegNo = regNo || reg_no || '';
+
+      if (id) {
+        await sql`
+          UPDATE "dr login" 
+          SET name = ${name}, 
+              phone = ${phone},
+              qualification = ${qualification}, 
+              consultant = ${consultant}, 
+              reg_no = ${finalRegNo},
+              password = ${password}
+          WHERE id = ${id}
+        `;
+      } else {
+        if (!phone) return res.status(400).json({ error: 'phone or id required' });
+        await sql`
+          UPDATE "dr login" 
+          SET name = ${name}, 
+              qualification = ${qualification}, 
+              consultant = ${consultant}, 
+              reg_no = ${finalRegNo},
+              password = ${password}
+          WHERE phone = ${phone}
+        `;
+      }
+      console.log('PATCH /api/auth success');
       return res.status(200).json({ success: true });
     }
 

@@ -97,9 +97,9 @@ function App() {
           });
         }
 
-        // Fetch Today's OP patients
-        const today = new Date().toLocaleDateString('en-CA');
-        const prescriptions = await databaseService.getPrescriptions(null, today);
+        // Fetch OP patients for the currently selected date
+        const queryDate = data.date || new Date().toLocaleDateString('en-CA');
+        const prescriptions = await databaseService.getPrescriptions(null, queryDate);
         if (prescriptions) {
           // We need patient details for these prescriptions
           const patientList = await Promise.all(
@@ -129,7 +129,7 @@ function App() {
       syncChannel.close();
       clearInterval(poll);
     };
-  }, []);
+  }, [data.date]); // Re-fetch when the chosen date changes
 
   // Update data when clinic settings change
   useEffect(() => {
@@ -340,14 +340,19 @@ function App() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h3 style={{ fontSize: '0.85rem', color: '#1e293b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.02em', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      Today's OP List
+                      {(() => {
+                        const today = new Date().toLocaleDateString('en-CA');
+                        if (data.date === today) return "Today's";
+                        const d = new Date(data.date);
+                        return <span style={{ color: '#2563eb', fontWeight: 900 }}>{`${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`}</span>;
+                      })()} OP List
                       <span style={{
                         fontSize: '0.65rem', background: '#ecfdf5', color: '#059669',
                         padding: '2px 8px', borderRadius: '20px', display: 'inline-flex',
                         alignItems: 'center', gap: '4px', border: '1px solid #10b981'
                       }}>
                         <span style={{ width: '6px', height: '6px', background: '#10b981', borderRadius: '50%', display: 'inline-block' }}></span>
-                        LIVE
+                        {data.date === new Date().toLocaleDateString('en-CA') ? 'LIVE' : 'VIEWING'}
                       </span>
                     </h3>
                     <button onClick={() => setIsSidebarVisible(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
@@ -391,6 +396,13 @@ function App() {
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
                               <span style={{ fontSize: '0.7rem', color: '#64748b' }}>MRN: {p.mrn}</span>
+                              <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 800 }}>
+                                {(() => {
+                                  if (!p.rx_date) return '---';
+                                  const d = new Date(p.rx_date);
+                                  return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+                                })()}
+                              </span>
                               <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{p.age} {p.sex}</span>
                             </div>
                           </button>

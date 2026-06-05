@@ -9,6 +9,7 @@ export default async function handler(req, res) {
     // Auto-migrate columns if missing
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS dr_fees TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS med_fees TEXT`;
+    await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS registration_date TEXT`;
 
     if (req.method === 'GET') {
       const { mrn } = req.query;
@@ -23,8 +24,8 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const d = req.body;
       await sql`
-        INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, updated_at)
-        VALUES (${d.mrn}, ${d.name}, ${d.age}, ${d.sex}, ${d.phone}, ${d.last_weight}, ${d.last_bp}, ${d.last_pulse}, ${d.last_temp}, ${d.dr_fees}, ${d.med_fees}, NOW())
+        INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, registration_date, updated_at)
+        VALUES (${d.mrn}, ${d.name}, ${d.age}, ${d.sex}, ${d.phone}, ${d.last_weight}, ${d.last_bp}, ${d.last_pulse}, ${d.last_temp}, ${d.dr_fees}, ${d.med_fees}, ${d.registration_date || ''}, NOW())
         ON CONFLICT (mrn) DO UPDATE SET
           name = EXCLUDED.name,
           age = EXCLUDED.age,
@@ -36,6 +37,7 @@ export default async function handler(req, res) {
           last_temp = EXCLUDED.last_temp,
           dr_fees = EXCLUDED.dr_fees,
           med_fees = EXCLUDED.med_fees,
+          registration_date = EXCLUDED.registration_date,
           updated_at = NOW()
       `;
       return res.status(200).json({ success: true });

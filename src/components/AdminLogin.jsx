@@ -10,7 +10,7 @@ const AdminLogin = ({ onLogin }) => {
   const handleSubmit = (e) => {
     e.preventDefault()
     setError('')
-    
+
     // Using Environment Variables (Set these in Vercel Dashboard)
     const adminEmail = import.meta.env.VITE_ADMIN_EMAIL
     const adminPass = import.meta.env.VITE_ADMIN_PASSWORD
@@ -35,7 +35,10 @@ const AdminLogin = ({ onLogin }) => {
       <div className="login-illustration-side admin-theme">
         <img src="/medical_login_illustration_1778484626201.png" alt="Admin Illustration" />
         <div className="illustration-text">
-          <h1>Guardian Admin</h1>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', marginBottom: '15px' }}>
+            <img src="/logo.png" alt="GP Logo" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
+            <h1 style={{ margin: 0 }}>Guardian Admin</h1>
+          </div>
           <p>Secure management portal for healthcare professionals. Manage medicines, inventory, and clinic settings.</p>
         </div>
       </div>
@@ -49,26 +52,26 @@ const AdminLogin = ({ onLogin }) => {
 
           <form onSubmit={handleSubmit}>
             {error && <div className="login-error">{error}</div>}
-            
+
             <div className="login-input-group">
               <label>Administrator ID</label>
-              <input 
-                type="email" 
-                value={email} 
-                onChange={(e) => setEmail(e.target.value)} 
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="email@example.com"
-                required 
+                required
               />
             </div>
 
             <div className="login-input-group">
               <label>Security Key</label>
-              <input 
-                type="password" 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                required 
+                required
               />
             </div>
 
@@ -83,7 +86,8 @@ const AdminLogin = ({ onLogin }) => {
         </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .login-page {
           display: flex;
           min-height: 100vh;
