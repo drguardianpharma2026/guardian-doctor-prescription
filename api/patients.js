@@ -23,23 +23,35 @@ export default async function handler(req, res) {
 
     if (req.method === 'POST') {
       const d = req.body;
-      await sql`
-        INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, registration_date, updated_at)
-        VALUES (${d.mrn}, ${d.name}, ${d.age}, ${d.sex}, ${d.phone}, ${d.last_weight}, ${d.last_bp}, ${d.last_pulse}, ${d.last_temp}, ${d.dr_fees}, ${d.med_fees}, ${d.registration_date || ''}, NOW())
-        ON CONFLICT (mrn) DO UPDATE SET
-          name = EXCLUDED.name,
-          age = EXCLUDED.age,
-          sex = EXCLUDED.sex,
-          phone = EXCLUDED.phone,
-          last_weight = EXCLUDED.last_weight,
-          last_bp = EXCLUDED.last_bp,
-          last_pulse = EXCLUDED.last_pulse,
-          last_temp = EXCLUDED.last_temp,
-          dr_fees = EXCLUDED.dr_fees,
-          med_fees = EXCLUDED.med_fees,
-          registration_date = EXCLUDED.registration_date,
-          updated_at = NOW()
-      `;
+
+      // Check if patient already exists
+      const existing = await sql`SELECT * FROM mrn WHERE mrn = ${d.mrn} LIMIT 1`;
+
+      if (existing.length > 0) {
+        // Update existing record: only overwrite fields that are provided in the request
+        await sql`
+          UPDATE mrn SET
+            name = ${d.name !== undefined ? d.name : sql`name`},
+            age = ${d.age !== undefined ? d.age : sql`age`},
+            sex = ${d.sex !== undefined ? d.sex : sql`sex`},
+            phone = ${d.phone !== undefined ? d.phone : sql`phone`},
+            last_weight = ${d.last_weight !== undefined ? d.last_weight : sql`last_weight`},
+            last_bp = ${d.last_bp !== undefined ? d.last_bp : sql`last_bp`},
+            last_pulse = ${d.last_pulse !== undefined ? d.last_pulse : sql`last_pulse`},
+            last_temp = ${d.last_temp !== undefined ? d.last_temp : sql`last_temp`},
+            dr_fees = ${d.dr_fees !== undefined ? d.dr_fees : sql`dr_fees`},
+            med_fees = ${d.med_fees !== undefined ? d.med_fees : sql`med_fees`},
+            registration_date = ${d.registration_date !== undefined ? d.registration_date : sql`registration_date`},
+            updated_at = NOW()
+          WHERE mrn = ${d.mrn}
+        `;
+      } else {
+        // New patient: insert with provided data or defaults
+        await sql`
+          INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, registration_date, updated_at)
+          VALUES (${d.mrn}, ${d.name || ''}, ${d.age || 0}, ${d.sex || ''}, ${d.phone || ''}, ${d.last_weight || ''}, ${d.last_bp || ''}, ${d.last_pulse || ''}, ${d.last_temp || ''}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.registration_date || ''}, NOW())
+        `;
+      }
       return res.status(200).json({ success: true });
     }
 

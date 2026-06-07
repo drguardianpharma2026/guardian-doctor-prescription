@@ -12,20 +12,27 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS visit_no TEXT`;
 
     if (req.method === 'GET') {
-      const { mrn, date } = req.query;
+      const { mrn, date, id } = req.query;
+      if (id) {
+        const result = await sql`SELECT * FROM prescriptions WHERE id = ${id}`;
+        return res.status(200).json(result);
+      }
       if (mrn && date) {
-        const result = await sql`SELECT * FROM prescriptions WHERE mrn = ${mrn} AND date = ${date} ORDER BY created_at DESC`;
+        // Chronological: oldest first for a specific patient+date
+        const result = await sql`SELECT * FROM prescriptions WHERE mrn = ${mrn} AND date = ${date} ORDER BY created_at ASC`;
         return res.status(200).json(result);
       }
       if (mrn) {
+        // Patient history: newest first
         const result = await sql`SELECT * FROM prescriptions WHERE mrn = ${mrn} ORDER BY created_at DESC`;
         return res.status(200).json(result);
       }
       if (date) {
-        // date-only filter: get all prescriptions for a given date
-        const result = await sql`SELECT * FROM prescriptions WHERE date = ${date} ORDER BY created_at DESC`;
+        // Today's OP list: chronological (first registered = first shown)
+        const result = await sql`SELECT * FROM prescriptions WHERE date = ${date} ORDER BY created_at ASC`;
         return res.status(200).json(result);
       }
+      // All records: newest first
       const result = await sql`SELECT * FROM prescriptions ORDER BY created_at DESC LIMIT 500`;
       return res.status(200).json(result);
     }
@@ -33,14 +40,12 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const d = req.body;
 
-      // Check if a prescription already exists for this MRN and Date
-      const existing = await sql`SELECT id FROM prescriptions WHERE mrn = ${d.mrn} AND date = ${d.date} LIMIT 1`;
-
-      if (existing.length > 0) {
-        // Update existing record with new data (including fees)
+      // If an ID is provided, we update that specific prescription.
+      // Otherwise, we always INSERT a new one to allow multiple visits/doctors per day.
+      if (d.id) {
         await sql`
           UPDATE prescriptions SET
-            patient_name = ${d.patient_name || ''},
+            patient_name = ${d.patient_name !== undefined ? d.patient_name : sql`patient_name`},
             diagnosis = ${d.diagnosis !== undefined ? d.diagnosis : sql`diagnosis`},
             complaints = ${d.complaints !== undefined ? d.complaints : sql`complaints`},
             medicines = ${d.medicines !== undefined ? d.medicines : sql`medicines`},
@@ -52,7 +57,7 @@ export default async function handler(req, res) {
             dr_fees = ${d.dr_fees !== undefined ? d.dr_fees : sql`dr_fees`},
             med_fees = ${d.med_fees !== undefined ? d.med_fees : sql`med_fees`},
             visit_no = ${d.visit_no !== undefined ? d.visit_no : sql`visit_no`}
-          WHERE id = ${existing[0].id}
+          WHERE id = ${d.id}
         `;
       } else {
         // Insert new record
@@ -74,6 +79,10 @@ export default async function handler(req, res) {
         await sql`DELETE FROM prescriptions`;
         return res.status(200).json({ success: true, message: 'All prescriptions deleted' });
       }
+      if (req.query.id) {
+        await sql`DELETE FROM prescriptions WHERE id = ${req.query.id}`;
+        return res.status(200).json({ success: true, message: `Prescription ${req.query.id} deleted` });
+      }
       if (mrn && date) {
         await sql`DELETE FROM prescriptions WHERE mrn = ${mrn} AND date = ${date}`;
         return res.status(200).json({ success: true, message: `Prescription for MRN ${mrn} on date ${date} deleted` });
@@ -82,7 +91,7 @@ export default async function handler(req, res) {
         await sql`DELETE FROM prescriptions WHERE mrn = ${mrn}`;
         return res.status(200).json({ success: true, message: `Prescriptions for MRN ${mrn} deleted` });
       }
-      return res.status(400).json({ error: 'Missing MRN or clearAll flag' });
+      return res.status(400).json({ error: 'Missing prescription ID or MRN' });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

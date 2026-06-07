@@ -51,7 +51,8 @@ function App() {
     doctorName: '',
     doctorQualifications: '',
     doctorRole: '',
-    doctorRegNo: ''
+    doctorRegNo: '',
+    rxId: null
   })
 
   // Fetch all master data from Neon on mount
@@ -62,17 +63,35 @@ function App() {
         if (settings) setClinicSettings(settings);
 
         const doctors = await databaseService.getSavedDoctors();
-        if (doctors && doctors.length > 0) {
-          setSavedDoctors(doctors);
+        const users = await databaseService.getUsers();
+
+        // Merge both doctors table + registered user accounts (auth table)
+        const mergedDoctors = [...(doctors || [])];
+        if (users && users.length > 0) {
+          users.forEach(user => {
+            if (!mergedDoctors.find(d => d.name === user.name)) {
+              mergedDoctors.push({
+                name: user.name,
+                qualifications: user.qualification || '',
+                role: user.consultant || '',
+                regNo: user.reg_no || user.regNo || ''
+              });
+            }
+          });
+        }
+
+        if (mergedDoctors.length > 0) {
+          setSavedDoctors(mergedDoctors);
           // Set initial doctor if not set
           setData(prev => ({
             ...prev,
-            doctorName: doctors[0].name,
-            doctorQualifications: doctors[0].qualifications,
-            doctorRole: doctors[0].role,
-            doctorRegNo: doctors[0].regNo || ''
+            doctorName: mergedDoctors[0].name,
+            doctorQualifications: mergedDoctors[0].qualifications,
+            doctorRole: mergedDoctors[0].role,
+            doctorRegNo: mergedDoctors[0].regNo || ''
           }));
         }
+
 
         const medicines = await databaseService.getMedicines();
         if (medicines) {
@@ -226,7 +245,7 @@ function App() {
     if (data.mrn) {
       try {
         await databaseService.savePatient(data);
-        await databaseService.savePrescription(data);
+        await databaseService.savePrescription({ ...data, id: data.rxId });
         // Live automation pulse
         new BroadcastChannel('nexusrx_sync').postMessage('refresh');
 
@@ -365,8 +384,9 @@ function App() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         {todayOPPatients.map(p => (
                           <button
-                            key={p.mrn}
-                            onClick={() => {
+                            key={p.rx_id || p.mrn}
+                            onClick={async () => {
+                              // Load basic patient info
                               setData(prev => ({
                                 ...prev,
                                 mrn: p.mrn,
@@ -377,8 +397,41 @@ function App() {
                                 weight: p.last_weight || prev.weight,
                                 bp: p.last_bp || prev.bp,
                                 pulse: p.last_pulse || prev.pulse,
-                                temp: p.last_temp || prev.temp
+                                temp: p.last_temp || prev.temp,
+                                rxId: p.rx_id
                               }));
+
+                              // Load specific prescription data for this visit
+                              if (p.rx_id) {
+                                try {
+                                  const rxArr = await databaseService.getPrescriptions(null, null, p.rx_id);
+                                  if (rxArr && rxArr.length > 0) {
+                                    const rx = rxArr[0];
+                                    let meds = [];
+                                    try { meds = JSON.parse(rx.medicines || '[]'); } catch (e) { }
+                                    let vitals = {};
+                                    try { vitals = JSON.parse(rx.vitals || '{}'); } catch (e) { }
+
+                                    setData(prev => ({
+                                      ...prev,
+                                      complaints: rx.complaints || '',
+                                      diagnosis: rx.diagnosis || '',
+                                      medicines: meds.length > 0 ? meds : prev.medicines,
+                                      advice: rx.advice || '',
+                                      followUp: rx.follow_up || '',
+                                      doctorName: rx.doctor_name || prev.doctorName,
+                                      doctorRegNo: rx.doctor_reg_no || prev.doctorRegNo,
+                                      visitNo: rx.visit_no || prev.visitNo,
+                                      weight: vitals.weight || prev.weight,
+                                      bp: vitals.bp || prev.bp,
+                                      pulse: vitals.pulse || prev.pulse,
+                                      temp: vitals.temp || prev.temp
+                                    }));
+                                  }
+                                } catch (err) {
+                                  console.error('Failed to load specific rx:', err);
+                                }
+                              }
                             }}
                             style={{
                               textAlign: 'left',

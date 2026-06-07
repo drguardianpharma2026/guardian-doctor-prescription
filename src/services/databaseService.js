@@ -39,20 +39,23 @@ export const databaseService = {
   // ── Patient / MRN ──
   async savePatient(patientData) {
     if (!patientData.mrn) return null;
-    const res = await api('/api/patients', 'POST', {
-      mrn: patientData.mrn.toString(),
-      name: patientData.patientName || patientData.name || '',
-      age: parseInt(patientData.age) || 0,
-      sex: patientData.gender || patientData.sex || '',
-      phone: patientData.phone || '',
-      last_weight: patientData.weight || patientData.last_weight || '',
-      last_bp: patientData.bp || patientData.last_bp || '',
-      last_pulse: patientData.pulse || patientData.last_pulse || '',
-      last_temp: patientData.temp || patientData.last_temp || '',
-      dr_fees: patientData.dr_fees || '',
-      med_fees: patientData.med_fees || '',
-      registration_date: patientData.registration_date || patientData.date || '',
-    });
+    const payload = {
+      mrn: patientData.mrn.toString()
+    };
+
+    if (patientData.patientName !== undefined || patientData.name !== undefined) payload.name = patientData.patientName || patientData.name;
+    if (patientData.age !== undefined && patientData.age !== '') payload.age = parseInt(patientData.age);
+    if (patientData.gender !== undefined || patientData.sex !== undefined) payload.sex = patientData.gender || patientData.sex;
+    if (patientData.phone !== undefined) payload.phone = patientData.phone;
+    if (patientData.weight !== undefined || patientData.last_weight !== undefined) payload.last_weight = patientData.weight || patientData.last_weight;
+    if (patientData.bp !== undefined || patientData.last_bp !== undefined) payload.last_bp = patientData.bp || patientData.last_bp;
+    if (patientData.pulse !== undefined || patientData.last_pulse !== undefined) payload.last_pulse = patientData.pulse || patientData.last_pulse;
+    if (patientData.temp !== undefined || patientData.last_temp !== undefined) payload.last_temp = patientData.temp || patientData.last_temp;
+    if (patientData.dr_fees !== undefined) payload.dr_fees = patientData.dr_fees;
+    if (patientData.med_fees !== undefined) payload.med_fees = patientData.med_fees;
+    if (patientData.registration_date !== undefined || patientData.date !== undefined) payload.registration_date = patientData.registration_date || patientData.date;
+
+    const res = await api('/api/patients', 'POST', payload);
     new BroadcastChannel('nexusrx_sync').postMessage('refresh');
     return res;
   },
@@ -71,9 +74,10 @@ export const databaseService = {
   },
 
   // ── Fees & Visits ──
-  async saveFees(mrn, date, patientName, drFees, medFees) {
+  async saveFees(mrn, date, patientName, drFees, medFees, rxId = null) {
     // Save to prescriptions history
     const historyPromise = api('/api/prescriptions', 'POST', {
+      id: rxId, // Use specific prescription ID if provided
       mrn: mrn.toString(),
       date,
       patient_name: patientName || '',
@@ -81,7 +85,7 @@ export const databaseService = {
       med_fees: medFees || '',
     });
 
-    // Save to fees history tracking table
+    // Save to fees history tracking table (log)
     const feesHistoryPromise = api('/api/fees', 'POST', {
       mrn: mrn.toString(),
       date,
@@ -89,12 +93,12 @@ export const databaseService = {
       med_fees: medFees || '',
     });
 
-    // Also save to patient record as fallback
+    // Also save to patient record as fallback - safely partial update
     const patientPromise = api('/api/patients', 'POST', {
       mrn: mrn.toString(),
-      name: patientName || '',
-      dr_fees: drFees || '',
-      med_fees: medFees || '',
+      name: patientName,
+      dr_fees: drFees,
+      med_fees: medFees,
     });
 
     return Promise.all([historyPromise, feesHistoryPromise, patientPromise]);
@@ -136,6 +140,7 @@ export const databaseService = {
   // ── Prescriptions ──
   async savePrescription(prescriptionData) {
     const res = await api('/api/prescriptions', 'POST', {
+      id: prescriptionData.id,
       mrn: prescriptionData.mrn,
       patient_name: prescriptionData.patientName,
       date: prescriptionData.date,
@@ -158,9 +163,10 @@ export const databaseService = {
     return res;
   },
 
-  async getPrescriptions(mrn, date) {
+  async getPrescriptions(mrn, date, id = null) {
     let url = '/api/prescriptions';
     const params = [];
+    if (id) params.push(`id=${encodeURIComponent(id)}`);
     if (mrn) params.push(`mrn=${encodeURIComponent(mrn)}`);
     if (date) params.push(`date=${encodeURIComponent(date)}`);
     if (params.length > 0) url += '?' + params.join('&');
@@ -172,9 +178,9 @@ export const databaseService = {
     return api(`/api/prescriptions?mrn=${encodeURIComponent(mrn)}`);
   },
 
-  async deletePrescription(mrn, date) {
-    if (!mrn || !date) return null;
-    return api(`/api/prescriptions?mrn=${encodeURIComponent(mrn)}&date=${encodeURIComponent(date)}`, 'DELETE');
+  async deletePrescription(id) {
+    if (!id) return null;
+    return api(`/api/prescriptions?id=${encodeURIComponent(id)}`, 'DELETE');
   },
 
   async clearAllPrescriptions() {

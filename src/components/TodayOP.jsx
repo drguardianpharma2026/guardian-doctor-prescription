@@ -55,11 +55,15 @@ export default function TodayOP() {
             const sorted = sortPatientsByMRN(dbPatients || [])
             setAllPatients(sorted)
             const today = new Date().toLocaleDateString('en-CA');
-            const rxMrns = new Set((dbRx || [])
-                .filter(rx => rx.date === today)
-                .map(rx => String(rx.mrn).trim())
-            );
-            setPatients(sorted.filter(p => rxMrns.has(String(p.mrn).trim())));
+            const todayRx = (dbRx || []).filter(rx => rx.date === today);
+
+            // Map prescriptions to patients to support multiple visits
+            const opList = todayRx.map(rx => {
+                const p = sorted.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim());
+                return { ...p, ...rx, rxId: rx.id };
+            });
+
+            setPatients(opList);
             setPrescriptions(dbRx || [])
             setUsers(dbUsers || [])
         } catch (err) {
@@ -132,22 +136,17 @@ export default function TodayOP() {
     }
 
     // ── Remove Visit ──
-    const handleRemoveVisit = async (mrn) => {
+    const handleRemoveVisit = async (rxId) => {
         setIsSyncing(true);
         setPendingRemoveMrn(null);
         try {
-            // Find the prescription date for this patient in the filtered list
-            // Since we're in Today's list, we'll use today as a default but ideally we'd find the exact date
-            const today = new Date().toLocaleDateString('en-CA');
-            await databaseService.deletePrescription(String(mrn), today);
+            await databaseService.deletePrescription(rxId);
             // Live automation pulse
             new BroadcastChannel('nexusrx_sync').postMessage('refresh');
             await loadData();
-        } catch (err) {
-            alert('Failed to remove: ' + err.message);
-        }
-        finally { setIsSyncing(false); }
-    }
+        } catch (err) { alert('Failed: ' + err.message) }
+        finally { setIsSyncing(false) }
+    };
 
     // ── Print OP List ──
     const handlePrint = () => {
@@ -156,7 +155,8 @@ export default function TodayOP() {
         <td>${i + 1}</td>
         <td style="background:#fef3c7;font-weight:700;color:#92400e">OP-${String(i + 1).padStart(2, '0')}</td>
         <td style="font-weight:700;color:#1d4ed8">${p.mrn}</td>
-        <td>${p.name}</td>
+        <td>${p.name || p.patient_name || ''}</td>
+        <td><strong>${p.doctor_name || '—'}</strong></td>
         <td>${p.age || ''}</td>
         <td>${p.sex || ''}</td>
         <td>${p.phone || ''}</td>
@@ -180,7 +180,7 @@ export default function TodayOP() {
     <button onclick="window.print()" style="margin-bottom:12px;padding:8px 20px;background:#1e40af;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨 Print</button>
     <h2>🩺 Today's OP List</h2>
     <p>${todayFull} &nbsp;|&nbsp; ${filtered.length} Patients</p>
-    <table><thead><tr><th>#</th><th>Token</th><th>MRN</th><th>Patient Name</th><th>Age</th><th>Sex</th><th>Phone</th><th>Weight</th><th>BP</th><th>Pulse</th><th>Temp</th></tr></thead>
+    <table><thead><tr><th>#</th><th>Token</th><th>MRN</th><th>Patient Name</th><th>Doctor</th><th>Age</th><th>Sex</th><th>Phone</th><th>Weight</th><th>BP</th><th>Pulse</th><th>Temp</th></tr></thead>
     <tbody>${rows}</tbody></table>
     </body></html>`)
         win.document.close()
@@ -267,7 +267,7 @@ export default function TodayOP() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', fontSize: '0.83rem' }}>
                         <thead>
                             <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                                {['#', 'Token', 'MRN', 'Patient Name', 'Age', 'Sex', 'Phone', 'Weight', 'BP', 'Pulse', 'Temp', 'Visits', 'Actions'].map(h => (
+                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Weight', 'BP', 'Pulse', 'Temp', 'Visits', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.78rem', letterSpacing: 0.3 }}>{h}</th>
                                 ))}
                             </tr>
@@ -285,7 +285,7 @@ export default function TodayOP() {
                                         !!(rx.advice && rx.advice.trim());
                                 }).length
                                 return (
-                                    <tr key={p.mrn} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                                    <tr key={p.rxId || p.mrn} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
                                         <td style={{ padding: '8px 10px', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
                                         <td style={{ padding: '8px 10px' }}>
                                             <span style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '2px 8px', fontWeight: 700, fontSize: '0.75rem', color: '#92400e' }}>
@@ -293,7 +293,12 @@ export default function TodayOP() {
                                             </span>
                                         </td>
                                         <td style={{ padding: '8px 10px', fontWeight: 700, color: '#2563eb' }}>{p.mrn}</td>
-                                        <td style={{ padding: '8px 10px', fontWeight: 500 }}>{p.name}</td>
+                                        <td style={{ padding: '8px 10px', fontWeight: 500 }}>{p.name || p.patient_name}</td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <span style={{ background: '#f0fdf4', color: '#166534', borderRadius: 4, padding: '2px 8px', fontWeight: 700, fontSize: '0.72rem', border: '1px solid #bbf7d0' }}>
+                                                {p.doctor_name || 'Not Assigned'}
+                                            </span>
+                                        </td>
                                         <td style={{ padding: '8px 10px' }}>{p.age}</td>
                                         <td style={{ padding: '8px 10px' }}>
                                             <span style={{ background: p.sex === 'Male' ? '#dbeafe' : '#fce7f3', color: p.sex === 'Male' ? '#1d4ed8' : '#be185d', borderRadius: 999, padding: '2px 8px', fontSize: '0.75rem', fontWeight: 600 }}>
@@ -364,25 +369,29 @@ export default function TodayOP() {
                                                     style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#d97706', fontWeight: 700 }}>
                                                     ✏️ Edit
                                                 </button>
-                                                {pendingRemoveMrn === p.mrn ? (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>Sure?</span>
-                                                        <button onClick={() => handleRemoveVisit(p.mrn)}
-                                                            style={{ background: '#ef4444', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: 'white', fontWeight: 700 }}>
-                                                            Yes
+                                                {(() => {
+                                                    const deleteId = p.rxId || p.id;
+                                                    if (!deleteId) return null;
+                                                    return pendingRemoveMrn === deleteId ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                            <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>Sure?</span>
+                                                            <button onClick={() => handleRemoveVisit(deleteId)}
+                                                                style={{ background: '#ef4444', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: 'white', fontWeight: 700 }}>
+                                                                Yes
+                                                            </button>
+                                                            <button onClick={() => setPendingRemoveMrn(null)}
+                                                                style={{ background: '#e2e8f0', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#475569', fontWeight: 700 }}>
+                                                                No
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button onClick={() => setPendingRemoveMrn(deleteId)}
+                                                            title="Remove Visit"
+                                                            style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700 }}>
+                                                            🗑️
                                                         </button>
-                                                        <button onClick={() => setPendingRemoveMrn(null)}
-                                                            style={{ background: '#e2e8f0', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#475569', fontWeight: 700 }}>
-                                                            No
-                                                        </button>
-                                                    </div>
-                                                ) : (
-                                                    <button onClick={() => setPendingRemoveMrn(p.mrn)}
-                                                        title="Remove Visit"
-                                                        style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700 }}>
-                                                        🗑️ Remove
-                                                    </button>
-                                                )}
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                     </tr>

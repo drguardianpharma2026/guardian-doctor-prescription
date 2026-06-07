@@ -639,15 +639,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
             }}
           />
         </div>
-        <div>
-          <Label>Visit No</Label>
-          <input
-            type="text"
-            value={data.visitNo || ''}
-            onChange={(e) => updateField('visitNo', e.target.value)}
-            placeholder="1"
-          />
-        </div>
+
       </div>
 
       {/* Row 2: Large Patient Name & Age */}
