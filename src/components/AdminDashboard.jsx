@@ -1276,37 +1276,37 @@ const AdminDashboard = ({ onLogout }) => {
             const month = parseInt(selectedMonth.split('-')[1]);
             const daysInMonth = new Date(year, month, 0).getDate();
 
-            const dailyData = [];
+            const monthlyData = [];
+            const docGroups = {};
             let grandTotalDr = 0;
             let grandTotalMed = 0;
 
-            for (let d = 1; d <= daysInMonth; d++) {
-              const dateStr = `${year}-${month.toString().padStart(2, '0')}-${d.toString().padStart(2, '0')}`;
-              const dayRx = allPrescriptions.filter(rx => rx.date === dateStr);
+            const monthRx = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
 
-              let dayDr = 0;
-              let dayMed = 0;
+            monthRx.forEach(rx => {
+              const dName = rx.doctor_name || 'Unassigned';
+              if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0 };
+              const df = rx.dr_fees?.toString().toLowerCase();
+              const mf = rx.med_fees?.toString().toLowerCase();
+              docGroups[dName].count++;
+              const drVal = (df === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0));
+              const medVal = (mf === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0));
+              docGroups[dName].dr += drVal;
+              docGroups[dName].med += medVal;
+              grandTotalDr += drVal;
+              grandTotalMed += medVal;
+            });
 
-              dayRx.forEach(rx => {
-                const df = rx.dr_fees?.toString().toLowerCase();
-                const mf = rx.med_fees?.toString().toLowerCase();
-
-                dayDr += (df === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0));
-                dayMed += (mf === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0));
+            Object.keys(docGroups).sort().forEach(dName => {
+              const g = docGroups[dName];
+              monthlyData.push({
+                doctorName: dName,
+                count: g.count,
+                drFees: g.dr,
+                medFees: g.med,
+                total: g.dr + g.med
               });
-
-              dailyData.push({
-                date: dateStr,
-                displayDate: `${d}/${month}/${year}`,
-                count: dayRx.length,
-                drFees: dayDr,
-                medFees: dayMed,
-                total: dayDr + dayMed
-              });
-
-              grandTotalDr += dayDr;
-              grandTotalMed += dayMed;
-            }
+            });
 
             return (
               <div className="grid-container">
@@ -1346,17 +1346,17 @@ const AdminDashboard = ({ onLogout }) => {
                                 <table>
                                   <thead>
                                     <tr>
-                                      <th>Date</th>
-                                      <th style="text-align: center;">Visits</th>
+                                      <th>Doctor Name</th>
+                                      <th style="text-align: center;">Total Visits</th>
                                       <th style="text-align: right;">Dr Fees (₹)</th>
                                       <th style="text-align: right;">Medicine Fees (₹)</th>
-                                      <th style="text-align: right;">Daily Total (₹)</th>
+                                      <th style="text-align: right;">Grand Total (₹)</th>
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    ${dailyData.filter(d => d.count > 0).map(d => `
+                                    ${monthlyData.map(d => `
                                       <tr>
-                                        <td>${d.displayDate}</td>
+                                        <td>${d.doctorName}</td>
                                         <td style="text-align: center;">${d.count}</td>
                                         <td style="text-align: right;">${d.drFees.toLocaleString()}</td>
                                         <td style="text-align: right;">${d.medFees.toLocaleString()}</td>
@@ -1367,7 +1367,7 @@ const AdminDashboard = ({ onLogout }) => {
                                   <tfoot>
                                     <tr class="total-row">
                                       <td>MONTHLY TOTAL</td>
-                                      <td style="text-align: center;">${dailyData.reduce((s, d) => s + d.count, 0)}</td>
+                                      <td style="text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
                                       <td style="text-align: right;">₹${grandTotalDr.toLocaleString()}</td>
                                       <td style="text-align: right;">₹${grandTotalMed.toLocaleString()}</td>
                                       <td style="text-align: right;">₹${(grandTotalDr + grandTotalMed).toLocaleString()}</td>
@@ -1399,22 +1399,21 @@ const AdminDashboard = ({ onLogout }) => {
                   <table className="excel-table">
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        <th style={{ width: '150px', padding: '15px' }}>Date</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Visits</th>
+                        <th style={{ padding: '15px', textAlign: 'left' }}>Doctor Name</th>
+                        <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Dr Fees (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Medicine Fees (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Daily Total (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px' }}>Grand Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody style={{ fontSize: '0.9rem' }}>
-                      {dailyData.map((d, idx) => (
+                      {monthlyData.map((d, idx) => (
                         <tr key={idx} style={{
-                          opacity: d.count === 0 ? 0.4 : 1,
-                          background: d.count === 0 ? 'transparent' : (idx % 2 === 0 ? '#fff' : '#fcfcfc'),
+                          background: idx % 2 === 0 ? '#fff' : '#fcfcfc',
                           transition: 'all 0.2s'
                         }}>
-                          <td style={{ fontWeight: 600, color: '#334155', padding: '12px 15px' }}>{d.displayDate}</td>
-                          <td style={{ textAlign: 'center', padding: '12px 15px', color: '#64748b' }}>{d.count || '-'}</td>
+                          <td style={{ padding: '12px 15px', color: '#1e293b', fontWeight: 600 }}>{d.doctorName}</td>
+                          <td style={{ textAlign: 'center', padding: '12px 15px', color: '#64748b', fontWeight: 700 }}>{d.count || '-'}</td>
                           <td style={{ textAlign: 'center', color: '#16a34a', fontWeight: 600, padding: '12px 15px' }}>{d.drFees ? d.drFees.toLocaleString() : '-'}</td>
                           <td style={{ textAlign: 'center', color: '#9333ea', fontWeight: 600, padding: '12px 15px' }}>{d.medFees ? d.medFees.toLocaleString() : '-'}</td>
                           <td style={{
@@ -1432,7 +1431,7 @@ const AdminDashboard = ({ onLogout }) => {
                     <tfoot>
                       <tr style={{ background: '#1e293b', color: 'white', fontWeight: 800 }}>
                         <td style={{ padding: '20px 15px' }}>MONTHLY SUMMARY</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px' }}>{dailyData.reduce((s, d) => s + d.count, 0)}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyData.reduce((s, d) => s + d.count, 0)}</td>
                         <td style={{ textAlign: 'center', color: '#4ade80', padding: '20px 15px' }}>₹{grandTotalDr.toLocaleString()}</td>
                         <td style={{ textAlign: 'center', color: '#c084fc', padding: '20px 15px' }}>₹{grandTotalMed.toLocaleString()}</td>
                         <td style={{ textAlign: 'center', background: '#ef4444', fontSize: '1.2rem', padding: '20px 15px', borderRadius: '0 0 12px 0' }}>₹{(grandTotalDr + grandTotalMed).toLocaleString()}</td>
