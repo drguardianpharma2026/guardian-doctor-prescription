@@ -9,6 +9,8 @@ export default async function handler(req, res) {
     // Auto-migrate columns if missing
     await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS dr_fees TEXT`;
     await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS med_fees TEXT`;
+    await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS lab_given TEXT`;
+    await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
     await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS visit_no TEXT`;
 
     if (req.method === 'GET') {
@@ -37,7 +39,7 @@ export default async function handler(req, res) {
       return res.status(200).json(result);
     }
 
-    if (req.method === 'POST') {
+    if (req.method === 'POST' || req.method === 'PATCH') {
       const d = req.body;
 
       // If an ID is provided, we update that specific prescription.
@@ -54,8 +56,10 @@ export default async function handler(req, res) {
             doctor_name = ${d.doctor_name !== undefined ? d.doctor_name : sql`doctor_name`},
             doctor_reg_no = ${d.doctor_reg_no !== undefined ? d.doctor_reg_no : sql`doctor_reg_no`},
             vitals = ${d.vitals !== undefined ? d.vitals : sql`vitals`},
-            dr_fees = ${d.dr_fees !== undefined ? d.dr_fees : sql`dr_fees`},
-            med_fees = ${d.med_fees !== undefined ? d.med_fees : sql`med_fees`},
+            dr_fees = ${d.dr_fees !== undefined ? (d.dr_fees || '') : sql`dr_fees`},
+            med_fees = ${d.med_fees !== undefined ? (d.med_fees || '') : sql`med_fees`},
+            lab_given = ${d.lab_given !== undefined ? (d.lab_given || '') : sql`lab_given`},
+            lab_cash = ${d.lab_cash !== undefined ? (d.lab_cash || '') : sql`lab_cash`},
             visit_no = ${d.visit_no !== undefined ? d.visit_no : sql`visit_no`}
           WHERE id = ${d.id}
         `;
@@ -63,11 +67,11 @@ export default async function handler(req, res) {
         // Insert new record
         await sql`
           INSERT INTO prescriptions
-            (mrn, patient_name, date, diagnosis, complaints, medicines, advice, follow_up, doctor_name, doctor_reg_no, vitals, dr_fees, med_fees, visit_no, created_at)
+            (mrn, patient_name, date, diagnosis, complaints, medicines, advice, follow_up, doctor_name, doctor_reg_no, vitals, dr_fees, med_fees, lab_given, lab_cash, visit_no, created_at)
           VALUES
             (${d.mrn}, ${d.patient_name}, ${d.date}, ${d.diagnosis || ''}, ${d.complaints || ''},
              ${d.medicines || '[]'}, ${d.advice || ''}, ${d.follow_up || ''},
-             ${d.doctor_name || ''}, ${d.doctor_reg_no || ''}, ${d.vitals || '{}'}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.visit_no || ''}, NOW())
+             ${d.doctor_name || ''}, ${d.doctor_reg_no || ''}, ${d.vitals || '{}'}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.visit_no || ''}, NOW())
         `;
       }
       return res.status(200).json({ success: true });

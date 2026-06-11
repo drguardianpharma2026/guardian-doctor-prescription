@@ -8,6 +8,7 @@ import AdminDashboard from './components/AdminDashboard.jsx'
 import UserLogin from './components/UserLogin.jsx'
 import UserSignup from './components/UserSignup.jsx'
 import TodayOP from './components/TodayOP.jsx'
+import StaffDashboard from './components/StaffDashboard.jsx'
 import { databaseService } from './services/databaseService.js'
 
 function App() {
@@ -28,6 +29,7 @@ function App() {
   const [savedDoctors, setSavedDoctors] = useState([])
   const [todayOPPatients, setTodayOPPatients] = useState([])
   const [isSidebarVisible, setIsSidebarVisible] = useState(true)
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const [data, setData] = useState({
     clinicName: '',
@@ -80,15 +82,22 @@ function App() {
           });
         }
 
-        if (mergedDoctors.length > 0) {
-          setSavedDoctors(mergedDoctors);
+        // Final list for UI: Filter out specific placeholder or development names
+        const finalDoctors = mergedDoctors.filter(d =>
+          d.name &&
+          !d.name.toUpperCase().includes('MUHSIN') &&
+          !d.name.toUpperCase().includes('UMA MAHESHWARAN')
+        );
+
+        if (finalDoctors.length > 0) {
+          setSavedDoctors(finalDoctors);
           // Set initial doctor if not set
           setData(prev => ({
             ...prev,
-            doctorName: mergedDoctors[0].name,
-            doctorQualifications: mergedDoctors[0].qualifications,
-            doctorRole: mergedDoctors[0].role,
-            doctorRegNo: mergedDoctors[0].regNo || ''
+            doctorName: finalDoctors[0].name,
+            doctorQualifications: finalDoctors[0].qualifications,
+            doctorRole: finalDoctors[0].role,
+            doctorRegNo: finalDoctors[0].regNo || ''
           }));
         }
 
@@ -243,9 +252,16 @@ function App() {
 
   const handleAutoSave = async (isManual = false) => {
     if (data.mrn) {
+      setIsSyncing(true);
       try {
         await databaseService.savePatient(data);
-        await databaseService.savePrescription({ ...data, id: data.rxId });
+        const savedRx = await databaseService.savePrescription({ ...data, id: data.rxId });
+
+        // CRITICAL: Update the rxId in state so subsequent saves/prints update this record
+        if (savedRx && savedRx.id) {
+          setData(prev => ({ ...prev, rxId: savedRx.id }));
+        }
+
         // Live automation pulse
         new BroadcastChannel('nexusrx_sync').postMessage('refresh');
 
@@ -255,8 +271,10 @@ function App() {
       } catch (err) {
         console.error('Auto-save failed:', err);
         if (isManual) {
-          alert(`Failed to save to database: ${err.message}\n\nPlease check if you have created the tables in Neon correctly.`);
+          alert(`Failed to save to database: ${err.message}`);
         }
+      } finally {
+        setIsSyncing(false);
       }
     } else if (isManual) {
       alert('Please enter a Patient ID (MRN) first.');
@@ -264,31 +282,80 @@ function App() {
   }
 
   const handlePrint = async () => {
-    await handleAutoSave();
-    const paperEl = document.getElementById('prescription-paper')
-    if (!paperEl) { alert('No prescription to print.'); return; }
+    // Open window immediately to avoid popup blocker
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+      alert('Popup blocked! Please allow popups for this site.');
+      return;
+    }
 
-    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    // While window is empty, we can save
+    await handleAutoSave();
+
+    const paperEl = document.getElementById('prescription-paper')
+    if (!paperEl) {
+      printWindow.close();
+      alert('No prescription to print.');
+      return;
+    }
+
+    // Get the styles from the preview component if they are not already in paperEl
+    // Since PrescriptionPreview puts a <style> tag as a sibling, we might need to find it
+    const previewContainer = paperEl.closest('.preview-scroll-wrapper') || paperEl.parentElement;
+    const extraStyles = previewContainer ? Array.from(previewContainer.querySelectorAll('style')).map(s => s.innerHTML).join('\n') : '';
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Prescription Preview</title>
+          <title>Prescription - ${data.patientName || 'Preview'}</title>
           <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />
           <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: #e8edf2; font-family: 'Noto Sans Tamil', sans-serif; }
-            #print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }
-            #print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }
-            #paper-wrapper { display: flex; justify-content: center; padding: 30px; }
-            #prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 0.8cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }
-            @media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } }
+            body { background: #f1f5f9; font-family: 'Inter', 'Noto Sans Tamil', sans-serif; display: flex; flex-direction: column; align-items: center; }
+            #print-toolbar { 
+              position: sticky; top: 0; z-index: 1000; width: 100%; 
+              background: #1e3a5f; display: flex; align-items: center; 
+              justify-content: space-between; padding: 12px 24px; color: white; 
+              box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-family: sans-serif;
+            }
+            #print-toolbar button { 
+              background: #10b981; color: white; border: none; 
+              padding: 10px 24px; border-radius: 8px; font-weight: 700; 
+              cursor: pointer; font-size: 14px; transition: all 0.2s;
+              box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            }
+            #print-toolbar button:hover { background: #059669; transform: translateY(-1px); }
+            #paper-wrapper { padding: 40px 20px; display: flex; justify-content: center; width: 100%; }
+            #prescription-paper { 
+              width: 210mm; min-height: 297mm; background: white; 
+              box-shadow: 0 10px 40px rgba(0,0,0,0.15); border-radius: 4px;
+            }
+            ${extraStyles}
+            @media print { 
+              #print-toolbar { display: none !important; } 
+              body { background: white !important; padding: 0 !important; } 
+              #paper-wrapper { padding: 0 !important; display: block !important; }
+              #prescription-paper { box-shadow: none !important; border: none !important; border-radius: 0 !important; width: 210mm !important; }
+            }
           </style>
         </head>
         <body>
-          <div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>
-          <div id="paper-wrapper">${paperEl.outerHTML}</div>
+          <div id="print-toolbar">
+            <div style="display:flex; align-items:center; gap:10px">
+              <span style="font-size:20px">🩺</span>
+              <span style="font-weight:700; font-size:16px">Prescription Preview</span>
+            </div>
+            <button onclick="window.print()">🖨 Print Prescription</button>
+          </div>
+          <div id="paper-wrapper">
+            ${paperEl.outerHTML}
+          </div>
+          <script>
+            // Auto-print focus
+            window.focus();
+          </script>
         </body>
       </html>
     `);
@@ -322,6 +389,7 @@ function App() {
         <Route path="/admin-login" element={<AdminLogin onLogin={handleLogin} />} />
         <Route path="/admin" element={isAdmin ? <AdminDashboard onLogout={handleLogout} /> : <Navigate to="/admin-login" />} />
         <Route path="/today-op" element={isAdmin ? <TodayOP /> : <Navigate to="/admin-login" />} />
+        <Route path="/staff" element={<StaffDashboard />} />
         <Route path="/" element={
           isUserAuthenticated ? (
             <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -386,24 +454,31 @@ function App() {
                           <button
                             key={p.rx_id || p.mrn}
                             onClick={async () => {
-                              // Load basic patient info
-                              setData(prev => ({
-                                ...prev,
-                                mrn: p.mrn,
-                                patientName: p.name || prev.patientName,
-                                age: p.age || prev.age,
-                                gender: p.sex || prev.gender,
-                                phone: p.phone || prev.phone,
-                                weight: p.last_weight || prev.weight,
-                                bp: p.last_bp || prev.bp,
-                                pulse: p.last_pulse || prev.pulse,
-                                temp: p.last_temp || prev.temp,
-                                rxId: p.rx_id
-                              }));
+                              setIsSyncing(true);
+                              try {
+                                // 1. Prepare base data from the patient object
+                                let fullData = {
+                                  ...data, // Keep doctor info
+                                  mrn: p.mrn,
+                                  patientName: p.name || p.patient_name || '',
+                                  age: p.age || '',
+                                  gender: p.sex || '',
+                                  phone: p.phone || '',
+                                  weight: p.last_weight || '',
+                                  bp: p.last_bp || '',
+                                  pulse: p.last_pulse || '',
+                                  temp: p.last_temp || '',
+                                  rxId: p.rx_id || null,
+                                  // Reset clinical fields for safety until loaded
+                                  complaints: '',
+                                  diagnosis: '',
+                                  medicines: [{ id: Math.random().toString(36).substr(2, 9), type: '', name: '', composition: '', dosage: '', timing: '', schedule: '', duration: '', qty: '' }],
+                                  advice: '',
+                                  followUp: ''
+                                };
 
-                              // Load specific prescription data for this visit
-                              if (p.rx_id) {
-                                try {
+                                // 2. If there's an rx_id, fetch the full prescription details
+                                if (p.rx_id) {
                                   const rxArr = await databaseService.getPrescriptions(null, null, p.rx_id);
                                   if (rxArr && rxArr.length > 0) {
                                     const rx = rxArr[0];
@@ -412,25 +487,30 @@ function App() {
                                     let vitals = {};
                                     try { vitals = JSON.parse(rx.vitals || '{}'); } catch (e) { }
 
-                                    setData(prev => ({
-                                      ...prev,
+                                    fullData = {
+                                      ...fullData,
                                       complaints: rx.complaints || '',
                                       diagnosis: rx.diagnosis || '',
-                                      medicines: meds.length > 0 ? meds : prev.medicines,
+                                      medicines: meds.length > 0 ? meds : fullData.medicines,
                                       advice: rx.advice || '',
                                       followUp: rx.follow_up || '',
-                                      doctorName: rx.doctor_name || prev.doctorName,
-                                      doctorRegNo: rx.doctor_reg_no || prev.doctorRegNo,
-                                      visitNo: rx.visit_no || prev.visitNo,
-                                      weight: vitals.weight || prev.weight,
-                                      bp: vitals.bp || prev.bp,
-                                      pulse: vitals.pulse || prev.pulse,
-                                      temp: vitals.temp || prev.temp
-                                    }));
+                                      doctorName: rx.doctor_name || fullData.doctorName,
+                                      doctorRegNo: rx.doctor_reg_no || fullData.doctorRegNo,
+                                      visitNo: rx.visit_no || fullData.visitNo,
+                                      weight: vitals.weight || fullData.weight,
+                                      bp: vitals.bp || fullData.bp,
+                                      pulse: vitals.pulse || fullData.pulse,
+                                      temp: vitals.temp || fullData.temp
+                                    };
                                   }
-                                } catch (err) {
-                                  console.error('Failed to load specific rx:', err);
                                 }
+
+                                // 3. Update state ONCE with full data
+                                setData(fullData);
+                              } catch (err) {
+                                console.error('Failed to load patient data:', err);
+                              } finally {
+                                setIsSyncing(false);
                               }
                             }}
                             style={{
@@ -441,7 +521,8 @@ function App() {
                               background: data.mrn === p.mrn ? 'var(--primary-subtle)' : 'white',
                               borderColor: data.mrn === p.mrn ? 'var(--primary)' : 'var(--border)',
                               cursor: 'pointer',
-                              transition: 'all 0.2s'
+                              transition: 'all 0.2s',
+                              position: 'relative'
                             }}
                           >
                             <div style={{ fontWeight: 700, fontSize: '0.85rem', color: data.mrn === p.mrn ? 'var(--primary)' : '#1e293b' }}>

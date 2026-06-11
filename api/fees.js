@@ -6,6 +6,10 @@ export default async function handler(req, res) {
     try {
         const sql = getDb();
 
+        // Auto-migrate columns if missing
+        await sql`ALTER TABLE fees_history ADD COLUMN IF NOT EXISTS lab_given TEXT`;
+        await sql`ALTER TABLE fees_history ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
+
         if (req.method === 'GET') {
             const { mrn, date } = req.query;
             if (mrn && date) {
@@ -26,7 +30,7 @@ export default async function handler(req, res) {
         }
 
         if (req.method === 'POST') {
-            const { mrn, date, dr_fees, med_fees } = req.body;
+            const { mrn, date, dr_fees, med_fees, lab_given, lab_cash } = req.body;
             if (!mrn || !date) return res.status(400).json({ error: 'mrn and date required' });
 
             // Upsert: Try to update today's record first, or insert new if it doesn't exist
@@ -37,13 +41,15 @@ export default async function handler(req, res) {
           UPDATE fees_history SET
             dr_fees = ${dr_fees || '0'},
             med_fees = ${med_fees || '0'},
+            lab_given = ${lab_given || ''},
+            lab_cash = ${lab_cash || ''},
             created_at = NOW()
           WHERE id = ${existing[0].id}
         `;
             } else {
                 await sql`
-          INSERT INTO fees_history (mrn, date, dr_fees, med_fees, created_at)
-          VALUES (${mrn}, ${date}, ${dr_fees || '0'}, ${med_fees || '0'}, NOW())
+          INSERT INTO fees_history (mrn, date, dr_fees, med_fees, lab_given, lab_cash, created_at)
+          VALUES (${mrn}, ${date}, ${dr_fees || '0'}, ${med_fees || '0'}, ${lab_given || ''}, ${lab_cash || ''}, NOW())
         `;
             }
             return res.status(200).json({ success: true });

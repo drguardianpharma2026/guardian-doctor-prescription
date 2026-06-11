@@ -6,8 +6,8 @@ import PrescriptionPreview from './PrescriptionPreview'
 const sortPatientsByMRN = (list) =>
     [...list].sort((a, b) => {
         const nA = parseInt(a.mrn, 10), nB = parseInt(b.mrn, 10)
-        if (!isNaN(nA) && !isNaN(nB)) return nA - nB
-        return String(a.mrn).localeCompare(String(b.mrn))
+        if (!isNaN(nA) && !isNaN(nB)) return nB - nA
+        return String(b.mrn).localeCompare(String(a.mrn))
     })
 
 const getNextMRN = (patients) => {
@@ -28,6 +28,9 @@ export default function TodayOP() {
     const [searchTerm, setSearchTerm] = useState('')
     const [isSyncing, setIsSyncing] = useState(false)
     const [pendingRemoveMrn, setPendingRemoveMrn] = useState(null)
+    const [opFees, setOpFees] = useState({}) // { [rxId]: { drFees, medFees, labGiven, labCash, total } }
+    const opFeesRef = React.useRef({})
+    useEffect(() => { opFeesRef.current = opFees }, [opFees])
 
     // Edit Modal
     const [editOpen, setEditOpen] = useState(false)
@@ -66,6 +69,30 @@ export default function TodayOP() {
             setPatients(opList);
             setPrescriptions(dbRx || [])
             setUsers(dbUsers || [])
+
+            // Initialize opFees
+            const initialFees = {};
+            todayRx.forEach(rx => {
+                const drFees = rx.dr_fees || '';
+                const medFees = rx.med_fees || '';
+                const labGiven = rx.lab_given || '';
+                const labCash = rx.lab_cash || '';
+                const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                const total = parseFee(drFees) + parseFee(medFees) + parseFee(labCash);
+                const allNil = drFees?.toLowerCase() === 'nil' && medFees?.toLowerCase() === 'nil' && labCash?.toLowerCase() === 'nil';
+                initialFees[rx.id?.toString()] = { drFees, medFees, labGiven, labCash, total: allNil ? 'Nil' : total };
+            });
+            setOpFees(prev => {
+                const merged = { ...prev };
+                const activeEl = document.activeElement;
+                const focusedRxId = activeEl?.closest('tr')?.getAttribute('data-rx-id');
+
+                Object.keys(initialFees).forEach(rid => {
+                    if (rid === focusedRxId) return;
+                    merged[rid] = initialFees[rid];
+                });
+                return merged;
+            });
         } catch (err) {
             console.error(err)
         } finally {
@@ -267,8 +294,8 @@ export default function TodayOP() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', fontSize: '0.83rem' }}>
                         <thead>
                             <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Weight', 'BP', 'Pulse', 'Temp', 'Visits', 'Actions'].map(h => (
-                                    <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.78rem', letterSpacing: 0.3 }}>{h}</th>
+                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Fees (₹)', 'Med (₹)', 'Lab Given', 'Total (₹)', 'Age', 'Visits', 'Actions'].map(h => (
+                                    <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.74rem', letterSpacing: 0.3, color: h.includes('Fees') ? '#4ade80' : h.includes('Med') ? '#c084fc' : h.includes('Lab Given') ? '#60a5fa' : h.includes('Total') ? '#fca5a5' : 'white' }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -285,7 +312,7 @@ export default function TodayOP() {
                                         !!(rx.advice && rx.advice.trim());
                                 }).length
                                 return (
-                                    <tr key={p.rxId || p.mrn} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
+                                    <tr key={p.rxId || p.mrn} data-rx-id={p.rxId} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#fff' : '#f8fafc' }}>
                                         <td style={{ padding: '8px 10px', color: '#64748b', fontWeight: 600 }}>{idx + 1}</td>
                                         <td style={{ padding: '8px 10px' }}>
                                             <span style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 5, padding: '2px 8px', fontWeight: 700, fontSize: '0.75rem', color: '#92400e' }}>
@@ -299,17 +326,102 @@ export default function TodayOP() {
                                                 {p.doctor_name || 'Not Assigned'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '8px 10px' }}>{p.age}</td>
                                         <td style={{ padding: '8px 10px' }}>
-                                            <span style={{ background: p.sex === 'Male' ? '#dbeafe' : '#fce7f3', color: p.sex === 'Male' ? '#1d4ed8' : '#be185d', borderRadius: 999, padding: '2px 8px', fontSize: '0.75rem', fontWeight: 600 }}>
-                                                {p.sex}
+                                            <input
+                                                type="text"
+                                                value={opFees[p.rxId]?.drFees || ''}
+                                                onChange={e => {
+                                                    const drFees = e.target.value;
+                                                    setOpFees(prev => {
+                                                        const f = prev[p.rxId] || {};
+                                                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                                        const total = parseFee(drFees) + parseFee(f.medFees) + parseFee(f.labCash);
+                                                        const allNil = [drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                                        return { ...prev, [p.rxId]: { ...f, drFees, total: allNil ? 'Nil' : (total > 0 ? total : '') } };
+                                                    });
+                                                }}
+                                                onBlur={async () => {
+                                                    const f = opFeesRef.current[p.rxId] || {};
+                                                    await databaseService.saveFees(p.mrn, p.date, p.name, f.drFees, f.medFees, p.rxId, f.labGiven, f.labCash);
+                                                    if (document.activeElement.tagName !== 'INPUT') loadData();
+                                                }}
+                                                style={{ width: '60px', padding: '2px 4px', border: '1px solid #bbf7d0', borderRadius: 4, fontSize: '0.75rem', background: '#f0fdf4', color: '#166534', fontWeight: 800, textAlign: 'center', outline: 'none' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                type="text"
+                                                value={opFees[p.rxId]?.medFees || ''}
+                                                onChange={e => {
+                                                    const medFees = e.target.value;
+                                                    setOpFees(prev => {
+                                                        const f = prev[p.rxId] || {};
+                                                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                                        const total = parseFee(f.drFees) + parseFee(medFees) + parseFee(f.labCash);
+                                                        const allNil = [f.drFees, medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                                        return { ...prev, [p.rxId]: { ...f, medFees, total: allNil ? 'Nil' : (total > 0 ? total : '') } };
+                                                    });
+                                                }}
+                                                onBlur={async () => {
+                                                    const f = opFeesRef.current[p.rxId] || {};
+                                                    await databaseService.saveFees(p.mrn, p.date, p.name, f.drFees, f.medFees, p.rxId, f.labGiven, f.labCash);
+                                                    if (document.activeElement.tagName !== 'INPUT') loadData();
+                                                }}
+                                                style={{ width: '60px', padding: '2px 4px', border: '1px solid #e9d5ff', borderRadius: 4, fontSize: '0.75rem', background: '#faf5ff', color: '#6b21a8', fontWeight: 800, textAlign: 'center', outline: 'none' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                type="text"
+                                                className="no-spinners"
+                                                value={opFees[p.rxId]?.labGiven || ''}
+                                                onChange={e => {
+                                                    const labGiven = e.target.value;
+                                                    setOpFees(prev => {
+                                                        const f = prev[p.rxId] || {};
+                                                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                                        const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(f.labCash);
+                                                        const allNil = [f.drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                                        return { ...prev, [p.rxId]: { ...f, labGiven, total: allNil ? 'Nil' : total } };
+                                                    });
+                                                }}
+                                                onBlur={async () => {
+                                                    const f = opFeesRef.current[p.rxId] || {};
+                                                    await databaseService.saveFees(p.mrn, p.date, p.name, f.drFees, f.medFees, p.rxId, f.labGiven, f.labCash);
+                                                    if (document.activeElement.tagName !== 'INPUT') loadData();
+                                                }}
+                                                style={{ width: '60px', padding: '2px 4px', border: '1px solid #bfdbfe', borderRadius: 4, fontSize: '0.75rem', background: '#eff6ff', color: '#1e40af', fontWeight: 800, textAlign: 'center', outline: 'none' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <input
+                                                type="text"
+                                                className="no-spinners"
+                                                value={opFees[p.rxId]?.labCash || ''}
+                                                onChange={e => {
+                                                    const labCash = e.target.value;
+                                                    setOpFees(prev => {
+                                                        const f = prev[p.rxId] || {};
+                                                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                                        const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(labCash);
+                                                        const allNil = [f.drFees, f.medFees, labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                                        return { ...prev, [p.rxId]: { ...f, labCash, total: allNil ? 'Nil' : total } };
+                                                    });
+                                                }}
+                                                onBlur={async () => {
+                                                    const f = opFeesRef.current[p.rxId] || {};
+                                                    await databaseService.saveFees(p.mrn, p.date, p.name, f.drFees, f.medFees, p.rxId, f.labGiven, f.labCash);
+                                                    if (document.activeElement.tagName !== 'INPUT') loadData();
+                                                }}
+                                                style={{ width: '60px', padding: '2px 4px', border: '1px solid #fed7aa', borderRadius: 4, fontSize: '0.75rem', background: '#fff7ed', color: '#9a3412', fontWeight: 800, textAlign: 'center', outline: 'none' }}
+                                            />
+                                        </td>
+                                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 900, color: '#dc2626' }}>
+                                                {opFees[p.rxId]?.total === 'Nil' ? 'Nil' : (opFees[p.rxId]?.total !== undefined && opFees[p.rxId]?.total !== '') ? `₹${opFees[p.rxId].total}` : '---'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '8px 10px' }}>{p.phone}</td>
-                                        <td style={{ padding: '8px 10px' }}>{p.last_weight}</td>
-                                        <td style={{ padding: '8px 10px' }}>{p.last_bp}</td>
-                                        <td style={{ padding: '8px 10px' }}>{p.last_pulse}</td>
-                                        <td style={{ padding: '8px 10px' }}>{p.last_temp}</td>
+                                        <td style={{ padding: '8px 10px' }}>{p.age}</td>
                                         <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                             {(() => {
                                                 const historyRxs = prescriptions.filter(rx => {

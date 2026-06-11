@@ -74,15 +74,17 @@ export const databaseService = {
   },
 
   // ── Fees & Visits ──
-  async saveFees(mrn, date, patientName, drFees, medFees, rxId = null) {
+  async saveFees(mrn, date, patientName, drFees, medFees, rxId = null, labGiven = '', labCash = '') {
     // Save to prescriptions history
     const historyPromise = api('/api/prescriptions', 'POST', {
-      id: rxId, // Use specific prescription ID if provided
+      id: rxId ? parseInt(rxId, 10) : null, // Ensure ID is passed as integer
       mrn: mrn.toString(),
       date,
       patient_name: patientName || '',
       dr_fees: drFees || '',
       med_fees: medFees || '',
+      lab_given: labGiven || '',
+      lab_cash: labCash || '',
     });
 
     // Save to fees history tracking table (log)
@@ -91,6 +93,8 @@ export const databaseService = {
       date,
       dr_fees: drFees || '',
       med_fees: medFees || '',
+      lab_given: labGiven || '',
+      lab_cash: labCash || '',
     });
 
     // Also save to patient record as fallback - safely partial update
@@ -99,6 +103,8 @@ export const databaseService = {
       name: patientName,
       dr_fees: drFees,
       med_fees: medFees,
+      lab_given: labGiven,
+      lab_cash: labCash,
     });
 
     return Promise.all([historyPromise, feesHistoryPromise, patientPromise]);

@@ -89,13 +89,15 @@ const UserLogin = ({ onLogin }) => {
             Don't have an account? <Link to="/signup">Sign Up</Link>
           </div>
 
-          <div className="signup-prompt" style={{ marginTop: '10px' }}>
-            <Link to="/admin-login" style={{ color: '#64748b', fontSize: '0.8rem', opacity: 0.7 }}>🔐 System Admin Portal</Link>
+          <div className="signup-prompt" style={{ marginTop: '10px', display: 'flex', gap: '15px', justifyContent: 'center' }}>
+            <Link to="/staff" style={{ color: '#0d9488', fontSize: '0.85rem', fontWeight: 700 }}>📋 Staff Dashboard</Link>
+            <Link to="/admin-login" style={{ color: '#64748b', fontSize: '0.85rem', opacity: 0.7 }}>🔐 Admin Portal</Link>
           </div>
         </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .login-page {
           display: flex;
           min-height: 100vh;

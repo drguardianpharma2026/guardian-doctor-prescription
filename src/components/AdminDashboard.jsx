@@ -7,8 +7,8 @@ const sortPatientsByMRN = (list) => {
   return [...list].sort((a, b) => {
     const numA = parseInt(a.mrn, 10);
     const numB = parseInt(b.mrn, 10);
-    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-    return String(a.mrn).localeCompare(String(b.mrn));
+    if (!isNaN(numA) && !isNaN(numB)) return numB - numA;
+    return String(b.mrn).localeCompare(String(a.mrn));
   });
 };
 
@@ -34,6 +34,7 @@ const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('todayop')
   const [medicines, setMedicines] = useState([])
   const [users, setUsers] = useState([])
+  const [savedDoctors, setSavedDoctors] = useState([])
   const [patients, setPatients] = useState([])
   const [prescriptions, setPrescriptions] = useState([])
   const [allPrescriptions, setAllPrescriptions] = useState([])
@@ -82,6 +83,8 @@ const AdminDashboard = ({ onLogout }) => {
     registration_date: ''
   })
   const [opFees, setOpFees] = useState({}) // { [mrn]: { drFees: '', medFees: '', total: '' } }
+  const opFeesRef = React.useRef({})
+  useEffect(() => { opFeesRef.current = opFees }, [opFees])
   const [pendingDeleteMrn, setPendingDeleteMrn] = useState(null) // Today OP inline confirm
   const [pendingDeletePatientMrn, setPendingDeletePatientMrn] = useState(null) // Patient Records inline confirm
   const [isDoctorAccountEditModalOpen, setIsDoctorAccountEditModalOpen] = useState(false)
@@ -106,15 +109,23 @@ const AdminDashboard = ({ onLogout }) => {
 
   const fetchUsers = async () => {
     try {
-      let dbUsers = await databaseService.getUsers();
-      if (!dbUsers || dbUsers.length === 0) {
-        const defaults = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN", "DR.VIGESH"];
+      const [dbUsers, dbSavedDoctors] = await Promise.all([
+        databaseService.getUsers(),
+        databaseService.getSavedDoctors()
+      ]);
+
+      if (dbUsers) setUsers(dbUsers);
+
+      if (!dbSavedDoctors || dbSavedDoctors.length === 0) {
+        const defaults = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
         for (const name of defaults) {
           try { await databaseService.saveDoctor({ name }); } catch (e) { }
         }
-        dbUsers = await databaseService.getUsers();
+        const updatedDocs = await databaseService.getSavedDoctors();
+        setSavedDoctors(updatedDocs || []);
+      } else {
+        setSavedDoctors(dbSavedDoctors);
       }
-      if (dbUsers) setUsers(dbUsers);
     } catch (e) { console.error(e); }
   };
 
@@ -131,17 +142,31 @@ const AdminDashboard = ({ onLogout }) => {
       if (dbPrescriptions) {
         setPrescriptions(dbPrescriptions);
         const initialFees = {};
+        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
         dbPrescriptions.forEach(rx => {
           if (rx.date === selectedDate) {
             const drFees = rx.dr_fees || '';
             const medFees = rx.med_fees || '';
-            const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-            const total = parseFee(drFees) + parseFee(medFees);
-            const bothNil = drFees?.toLowerCase() === 'nil' && medFees?.toLowerCase() === 'nil';
-            initialFees[rx.id] = { drFees, medFees, total: bothNil ? 'Nil' : (total > 0 ? total : '') };
+            const labGiven = rx.lab_given || '';
+            const labCash = rx.lab_cash || '';
+            const total = parseFee(drFees) + parseFee(medFees) + parseFee(labCash);
+            const allNil = [drFees, medFees, labCash].every(v => v?.toString().toLowerCase() === 'nil');
+            const rid = rx.id?.toString();
+            initialFees[rid] = { drFees, medFees, labGiven, labCash, total: allNil ? 'Nil' : total };
           }
         });
-        setOpFees(initialFees);
+        setOpFees(prev => {
+          const merged = { ...prev };
+          // Optimization: check which ID is currently focused to avoid overwriting active user input
+          const activeEl = document.activeElement;
+          const focusedRxId = activeEl?.closest('tr')?.getAttribute('data-rx-id');
+
+          Object.keys(initialFees).forEach(rid => {
+            if (rid === focusedRxId) return; // Skip updating the row being edited
+            merged[rid] = initialFees[rid];
+          });
+          return merged;
+        });
       }
     } catch (e) { console.error(e); }
   };
@@ -541,11 +566,21 @@ const AdminDashboard = ({ onLogout }) => {
 
   return (
     <div className="excel-admin">
+      {/* Sidebar Hover Trigger (Desktop only) */}
+      <div className="sidebar-hover-indicator"></div>
+      <div className="sidebar-hover-trigger" onMouseEnter={() => setIsSidebarOpen(true)}></div>
+
       {/* Sidebar Backdrop for Mobile */}
       {isSidebarOpen && <div className="sidebar-backdrop" onClick={() => setIsSidebarOpen(false)}></div>}
 
       {/* ── Sidebar ── */}
-      <aside className={`excel-sidebar ${isSidebarOpen ? 'mobile-open' : ''}`}>
+      <aside
+        className={`excel-sidebar ${isSidebarOpen ? 'mobile-open' : ''}`}
+        onMouseLeave={() => {
+          // Only auto-close on desktop. Mobile uses backdrop click or X button.
+          if (window.innerWidth > 768) setIsSidebarOpen(false);
+        }}
+      >
         <div className="excel-logo">
           <img src="/logo.png" alt="Guardian Logo" style={{ width: '38px', height: '38px', objectFit: 'contain', borderRadius: '6px', flexShrink: 0 }} />
           <span>Guardian Admin</span>
@@ -806,9 +841,9 @@ const AdminDashboard = ({ onLogout }) => {
                   >ALL DOCTORS</button>
                   {(() => {
                     const base = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
-                    const excluded = ["PRAGADEESH", "UMAMAHESWARAN"];
+                    const excluded = ["PRAGADEESH", "UMAMAHESWARAN", "MUHSIN"];
                     const all = Array.from(new Set([...base, ...users.map(u => u.name.trim().toUpperCase())]))
-                      .filter(name => name && !excluded.some(ex => name.includes(ex) && !name.startsWith("DR.")));
+                      .filter(name => name && !excluded.some(ex => name.includes(ex) && !name.startsWith("DR.")) && name !== "DR. MUHSIN" && name !== "DR. ALL DOCTORS" && name !== "ALL DOCTORS");
                     return all.map((docName, idx) => (
                       <button
                         key={idx}
@@ -844,6 +879,8 @@ const AdminDashboard = ({ onLogout }) => {
                         <th style={{ minWidth: 200 }}>Attending Doctor</th>
                         <th style={{ width: 90, color: '#16a34a', textAlign: 'center' }}>Dr Fees (₹)</th>
                         <th style={{ width: 90, color: '#7c3aed', textAlign: 'center' }}>Medicine (₹)</th>
+                        <th style={{ width: 90, color: '#2563eb', textAlign: 'center' }}>Lab Given</th>
+                        <th style={{ width: 90, color: '#ea580c', textAlign: 'center' }}>Lab Cash (₹)</th>
                         <th style={{ width: 90, color: '#dc2626', fontWeight: 800, textAlign: 'center' }}>Total (₹)</th>
                         <th style={{ width: 70, color: '#0369a1', fontWeight: 800, textAlign: 'center' }}>Visits</th>
                         <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
@@ -858,7 +895,7 @@ const AdminDashboard = ({ onLogout }) => {
                         const visitColor = visitCount === 1 ? { bg: '#f0fdf4', border: '#86efac', text: '#15803d' } : visitCount === 2 ? { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' } : visitCount === 3 ? { bg: '#fef3c7', border: '#fcd34d', text: '#b45309' } : { bg: '#fdf4ff', border: '#e879f9', text: '#7e22ce' };
 
                         return (
-                          <tr key={entry.rxId} style={{ height: '28px' }}>
+                          <tr key={entry.rxId} style={{ height: '28px' }} data-rx-id={entry.rxId}>
                             <td className="row-num-col">{idx + 1}</td>
                             <td><span style={{ padding: '2px 8px', display: 'inline-block', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', color: '#92400e' }}>OP-{String(idx + 1).padStart(2, '0')}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
@@ -889,7 +926,7 @@ const AdminDashboard = ({ onLogout }) => {
                               ) : (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', padding: '4px 0' }}>
                                   {(Array.from(new Set(["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN", ...users.map(u => u.name.trim().toUpperCase())]))
-                                    .filter(name => name && !["PRAGADEESH", "UMAMAHESWARAN"].some(ex => name.includes(ex) && !name.startsWith("DR."))))
+                                    .filter(name => name && !["PRAGADEESH", "UMAMAHESWARAN", "MUHSIN"].some(ex => name.includes(ex) && !name.startsWith("DR.")) && name !== "DR. MUHSIN"))
                                     .map((name, bIdx) => (
                                       <button
                                         key={bIdx}
@@ -909,15 +946,19 @@ const AdminDashboard = ({ onLogout }) => {
                                 value={opFees[entry.rxId]?.drFees || ''}
                                 onChange={e => {
                                   const drFees = e.target.value;
-                                  const medFees = opFees[entry.rxId]?.medFees || '';
-                                  const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                  const total = parseFee(drFees) + parseFee(medFees);
-                                  const bothNil = drFees?.toLowerCase() === 'nil' && medFees?.toLowerCase() === 'nil';
-                                  setOpFees(prev => ({ ...prev, [entry.rxId]: { drFees, medFees, total: bothNil ? 'Nil' : (total > 0 ? total : '') } }));
+                                  setOpFees(prev => {
+                                    const f = prev[entry.rxId] || {};
+                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                    const total = parseFee(drFees) + parseFee(f.medFees) + parseFee(f.labCash);
+                                    const allNil = [drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                    return { ...prev, [entry.rxId]: { ...f, drFees, total: allNil ? 'Nil' : total } };
+                                  });
                                 }}
                                 onBlur={async () => {
-                                  const feeData = opFees[entry.rxId];
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, feeData.drFees, feeData.medFees, entry.rxId);
+                                  // Use Ref to always get the LATEST state, bypassing closure staleness
+                                  const f = opFeesRef.current[entry.rxId] || {};
+                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
+                                  if (document.activeElement.tagName !== 'INPUT') fetchTodayOpData();
                                 }}
                                 style={{ width: '80px', padding: '2px 6px', border: '1px solid #bbf7d0', borderRadius: 4, fontSize: '0.8rem', background: '#f0fdf4', color: '#166534', fontWeight: 600, textAlign: 'center' }}
                               />
@@ -930,22 +971,73 @@ const AdminDashboard = ({ onLogout }) => {
                                 value={opFees[entry.rxId]?.medFees || ''}
                                 onChange={e => {
                                   const medFees = e.target.value;
-                                  const drFees = opFees[entry.rxId]?.drFees || '';
-                                  const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                  const total = parseFee(drFees) + parseFee(medFees);
-                                  const bothNil = drFees?.toLowerCase() === 'nil' && medFees?.toLowerCase() === 'nil';
-                                  setOpFees(prev => ({ ...prev, [entry.rxId]: { drFees, medFees, total: bothNil ? 'Nil' : (total > 0 ? total : '') } }));
+                                  setOpFees(prev => {
+                                    const f = prev[entry.rxId] || {};
+                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                    const total = parseFee(f.drFees) + parseFee(medFees) + parseFee(f.labCash);
+                                    const allNil = [f.drFees, medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                    return { ...prev, [entry.rxId]: { ...f, medFees, total: allNil ? 'Nil' : total } };
+                                  });
                                 }}
                                 onBlur={async () => {
-                                  const feeData = opFees[entry.rxId];
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, feeData.drFees, feeData.medFees, entry.rxId);
+                                  const f = opFees[entry.rxId] || {};
+                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
+                                  fetchTodayOpData();
                                 }}
                                 style={{ width: '80px', padding: '2px 6px', border: '1px solid #e9d5ff', borderRadius: 4, fontSize: '0.8rem', background: '#faf5ff', color: '#6b21a8', fontWeight: 600, textAlign: 'center' }}
                               />
                             </td>
                             <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                              <input
+                                type="text"
+                                className="no-spinners"
+                                placeholder=""
+                                value={opFees[entry.rxId]?.labGiven || ''}
+                                onChange={e => {
+                                  const labGiven = e.target.value;
+                                  setOpFees(prev => {
+                                    const f = prev[entry.rxId] || {};
+                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                    const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(f.labCash);
+                                    const allNil = [f.drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                    return { ...prev, [entry.rxId]: { ...f, labGiven, total: allNil ? 'Nil' : total } };
+                                  });
+                                }}
+                                onBlur={async () => {
+                                  const f = opFees[entry.rxId] || {};
+                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
+                                  fetchTodayOpData();
+                                }}
+                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #bfdbfe', borderRadius: 4, fontSize: '0.8rem', background: '#eff6ff', color: '#1e40af', fontWeight: 600, textAlign: 'center' }}
+                              />
+                            </td>
+                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
+                              <input
+                                type="text"
+                                className="no-spinners"
+                                placeholder=""
+                                value={opFees[entry.rxId]?.labCash || ''}
+                                onChange={e => {
+                                  const labCash = e.target.value;
+                                  setOpFees(prev => {
+                                    const f = prev[entry.rxId] || {};
+                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                                    const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(labCash);
+                                    const allNil = [f.drFees, f.medFees, labCash].every(v => v?.toString().toLowerCase() === 'nil');
+                                    return { ...prev, [entry.rxId]: { ...f, labCash, total: allNil ? 'Nil' : total } };
+                                  });
+                                }}
+                                onBlur={async () => {
+                                  const f = opFees[entry.rxId] || {};
+                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
+                                  fetchTodayOpData();
+                                }}
+                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #fed7aa', borderRadius: 4, fontSize: '0.8rem', background: '#fff7ed', color: '#9a3412', fontWeight: 600, textAlign: 'center' }}
+                              />
+                            </td>
+                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                               <span style={{ padding: '2px 8px', display: 'inline-block', fontWeight: 800, color: '#dc2626', background: opFees[entry.rxId]?.total ? '#fef2f2' : 'transparent', borderRadius: 4, textAlign: 'center', minWidth: 60 }}>
-                                {opFees[entry.rxId]?.total === 'Nil' ? 'Nil' : opFees[entry.rxId]?.total ? `₹${opFees[entry.rxId].total}` : '—'}
+                                {opFees[entry.rxId]?.total === 'Nil' ? 'Nil' : (opFees[entry.rxId]?.total !== undefined && opFees[entry.rxId]?.total !== '') ? `₹${opFees[entry.rxId].total}` : '—'}
                               </span>
                             </td>
                             <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
@@ -999,6 +1091,12 @@ const AdminDashboard = ({ onLogout }) => {
                         </td>
                         <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#c4b5fd', background: 'rgba(124,58,237,0.1)' }}>
                           ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.medFees; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#93c5fd', background: 'rgba(59,130,246,0.1)' }}>
+                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.labGiven; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
+                        </td>
+                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#fdba74', background: 'rgba(234,88,12,0.1)' }}>
+                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.labCash; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
                         </td>
                         <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#fca5a5', background: 'rgba(220,38,38,0.25)', borderRadius: 4 }}>
                           ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.total; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
@@ -1283,18 +1381,23 @@ const AdminDashboard = ({ onLogout }) => {
 
             const monthRx = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
 
+            let grandTotalLab = 0;
             monthRx.forEach(rx => {
               const dName = rx.doctor_name || 'Unassigned';
-              if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0 };
+              if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0 };
               const df = rx.dr_fees?.toString().toLowerCase();
               const mf = rx.med_fees?.toString().toLowerCase();
+              const lf = rx.lab_cash?.toString().toLowerCase();
               docGroups[dName].count++;
               const drVal = (df === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0));
               const medVal = (mf === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0));
+              const labVal = (lf === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0));
               docGroups[dName].dr += drVal;
               docGroups[dName].med += medVal;
+              docGroups[dName].lab += labVal;
               grandTotalDr += drVal;
               grandTotalMed += medVal;
+              grandTotalLab += labVal;
             });
 
             Object.keys(docGroups).sort().forEach(dName => {
@@ -1304,7 +1407,8 @@ const AdminDashboard = ({ onLogout }) => {
                 count: g.count,
                 drFees: g.dr,
                 medFees: g.med,
-                total: g.dr + g.med
+                labCash: g.lab,
+                total: g.dr + g.med + g.lab
               });
             });
 
@@ -1350,6 +1454,7 @@ const AdminDashboard = ({ onLogout }) => {
                                       <th style="text-align: center;">Total Visits</th>
                                       <th style="text-align: right;">Dr Fees (₹)</th>
                                       <th style="text-align: right;">Medicine Fees (₹)</th>
+                                      <th style="text-align: right;">Lab Cash (₹)</th>
                                       <th style="text-align: right;">Grand Total (₹)</th>
                                     </tr>
                                   </thead>
@@ -1360,6 +1465,7 @@ const AdminDashboard = ({ onLogout }) => {
                                         <td style="text-align: center;">${d.count}</td>
                                         <td style="text-align: right;">${d.drFees.toLocaleString()}</td>
                                         <td style="text-align: right;">${d.medFees.toLocaleString()}</td>
+                                        <td style="text-align: right;">${d.labCash.toLocaleString()}</td>
                                         <td style="text-align: right;">${d.total.toLocaleString()}</td>
                                       </tr>
                                     `).join('')}
@@ -1370,7 +1476,8 @@ const AdminDashboard = ({ onLogout }) => {
                                       <td style="text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
                                       <td style="text-align: right;">₹${grandTotalDr.toLocaleString()}</td>
                                       <td style="text-align: right;">₹${grandTotalMed.toLocaleString()}</td>
-                                      <td style="text-align: right;">₹${(grandTotalDr + grandTotalMed).toLocaleString()}</td>
+                                      <td style="text-align: right;">₹${grandTotalLab.toLocaleString()}</td>
+                                      <td style="text-align: right;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
                                     </tr>
                                   </tfoot>
                                 </table>
@@ -1403,6 +1510,7 @@ const AdminDashboard = ({ onLogout }) => {
                         <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Dr Fees (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Medicine Fees (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px' }}>Lab Cash (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Grand Total (₹)</th>
                       </tr>
                     </thead>
@@ -1416,6 +1524,7 @@ const AdminDashboard = ({ onLogout }) => {
                           <td style={{ textAlign: 'center', padding: '12px 15px', color: '#64748b', fontWeight: 700 }}>{d.count || '-'}</td>
                           <td style={{ textAlign: 'center', color: '#16a34a', fontWeight: 600, padding: '12px 15px' }}>{d.drFees ? d.drFees.toLocaleString() : '-'}</td>
                           <td style={{ textAlign: 'center', color: '#9333ea', fontWeight: 600, padding: '12px 15px' }}>{d.medFees ? d.medFees.toLocaleString() : '-'}</td>
+                          <td style={{ textAlign: 'center', color: '#ea580c', fontWeight: 600, padding: '12px 15px' }}>{d.labCash ? d.labCash.toLocaleString() : '-'}</td>
                           <td style={{
                             textAlign: 'center',
                             color: '#dc2626',
@@ -1434,7 +1543,8 @@ const AdminDashboard = ({ onLogout }) => {
                         <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyData.reduce((s, d) => s + d.count, 0)}</td>
                         <td style={{ textAlign: 'center', color: '#4ade80', padding: '20px 15px' }}>₹{grandTotalDr.toLocaleString()}</td>
                         <td style={{ textAlign: 'center', color: '#c084fc', padding: '20px 15px' }}>₹{grandTotalMed.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', background: '#ef4444', fontSize: '1.2rem', padding: '20px 15px', borderRadius: '0 0 12px 0' }}>₹{(grandTotalDr + grandTotalMed).toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', color: '#fb923c', padding: '20px 15px' }}>₹{grandTotalLab.toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', background: '#ef4444', fontSize: '1.2rem', padding: '20px 15px', borderRadius: '0 0 12px 0' }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1649,8 +1759,8 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
 
               <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: 'white' }}>
-                {users.map((u, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', borderBottom: idx === users.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                {savedDoctors.map((u, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', borderBottom: idx === savedDoctors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
                     <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}>{u.name}</span>
                     <button
                       onClick={async () => {
@@ -1666,7 +1776,7 @@ const AdminDashboard = ({ onLogout }) => {
                   </div>
                 ))}
 
-                {users.length === 0 && (
+                {savedDoctors.length === 0 && (
                   <div style={{ padding: '30px', textAlign: 'center' }}>
                     <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 10px 0' }}>No doctors listed.</p>
                     <button
@@ -2171,6 +2281,43 @@ const AdminDashboard = ({ onLogout }) => {
           display: flex;
           flex-direction: column;
           padding: 20px 0;
+          position: fixed;
+          top: 0;
+          left: 0;
+          bottom: 0;
+          z-index: 1500;
+          transform: translateX(-100%);
+          transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .sidebar-hover-trigger {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 15px;
+          height: 100vh;
+          z-index: 1600;
+          background: transparent;
+        }
+
+        /* Subtle visual hint that a sidebar exists */
+        .sidebar-hover-indicator {
+          position: fixed;
+          top: 50%;
+          left: 0;
+          width: 4px;
+          height: 40px;
+          background: #2563eb;
+          border-radius: 0 4px 4px 0;
+          z-index: 1550;
+          transform: translateY(-50%);
+          opacity: 0.4;
+          pointer-events: none;
+        }
+
+        .excel-sidebar.mobile-open {
+          transform: translateX(0);
         }
         .excel-logo {
           display: flex;
@@ -2248,7 +2395,14 @@ const AdminDashboard = ({ onLogout }) => {
         .logout-btn { background: #dc2626; color: white; }
 
         /* Excel Main Area */
-        .excel-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .excel-main { 
+          flex: 1; 
+          display: flex; 
+          flex-direction: column; 
+          overflow: hidden; 
+          transition: margin-left 0.4s ease;
+          width: 100%;
+        }
         .excel-header {
           background: white;
           padding: 15px 30px;

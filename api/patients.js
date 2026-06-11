@@ -9,6 +9,8 @@ export default async function handler(req, res) {
     // Auto-migrate columns if missing
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS dr_fees TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS med_fees TEXT`;
+    await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS lab_given TEXT`;
+    await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS registration_date TEXT`;
 
     if (req.method === 'GET') {
@@ -41,6 +43,8 @@ export default async function handler(req, res) {
             last_temp = ${d.last_temp !== undefined ? d.last_temp : sql`last_temp`},
             dr_fees = ${d.dr_fees !== undefined ? d.dr_fees : sql`dr_fees`},
             med_fees = ${d.med_fees !== undefined ? d.med_fees : sql`med_fees`},
+            lab_given = ${d.lab_given !== undefined ? d.lab_given : sql`lab_given`},
+            lab_cash = ${d.lab_cash !== undefined ? d.lab_cash : sql`lab_cash`},
             registration_date = ${d.registration_date !== undefined ? d.registration_date : sql`registration_date`},
             updated_at = NOW()
           WHERE mrn = ${d.mrn}
@@ -48,8 +52,8 @@ export default async function handler(req, res) {
       } else {
         // New patient: insert with provided data or defaults
         await sql`
-          INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, registration_date, updated_at)
-          VALUES (${d.mrn}, ${d.name || ''}, ${d.age || 0}, ${d.sex || ''}, ${d.phone || ''}, ${d.last_weight || ''}, ${d.last_bp || ''}, ${d.last_pulse || ''}, ${d.last_temp || ''}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.registration_date || ''}, NOW())
+          INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, lab_given, lab_cash, registration_date, updated_at)
+          VALUES (${d.mrn}, ${d.name || ''}, ${d.age || 0}, ${d.sex || ''}, ${d.phone || ''}, ${d.last_weight || ''}, ${d.last_bp || ''}, ${d.last_pulse || ''}, ${d.last_temp || ''}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.registration_date || ''}, NOW())
         `;
       }
       return res.status(200).json({ success: true });
