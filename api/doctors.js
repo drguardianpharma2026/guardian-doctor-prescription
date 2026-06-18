@@ -34,7 +34,8 @@ export default async function handler(req, res) {
     if (req.method === 'DELETE') {
       const { name } = req.query;
       if (!name) return res.status(400).json({ error: 'name required' });
-      await sql`DELETE FROM doctors WHERE name = ${name}`;
+      // Use TRIM and case-insensitive comparison for robust deletion
+      await sql`DELETE FROM doctors WHERE TRIM(UPPER(name)) = TRIM(UPPER(${name}))`;
       return res.status(200).json({ success: true });
     }
 

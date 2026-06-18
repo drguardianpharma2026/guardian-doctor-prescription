@@ -63,6 +63,7 @@ const AdminDashboard = ({ onLogout }) => {
     age: '',
     gender: '',
     phone: '',
+    place: '',
     weight: '',
     bp: '',
     pulse: '',
@@ -76,6 +77,7 @@ const AdminDashboard = ({ onLogout }) => {
     age: '',
     gender: 'Male',
     phone: '',
+    place: '',
     weight: '',
     bp: '',
     pulse: '',
@@ -116,6 +118,7 @@ const AdminDashboard = ({ onLogout }) => {
 
       if (dbUsers) setUsers(dbUsers);
 
+      /*
       if (!dbSavedDoctors || dbSavedDoctors.length === 0) {
         const defaults = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
         for (const name of defaults) {
@@ -126,6 +129,8 @@ const AdminDashboard = ({ onLogout }) => {
       } else {
         setSavedDoctors(dbSavedDoctors);
       }
+      */
+      setSavedDoctors(dbSavedDoctors || []);
     } catch (e) { console.error(e); }
   };
 
@@ -196,7 +201,7 @@ const AdminDashboard = ({ onLogout }) => {
     if (isFullRefresh) {
       // Full refresh always loads ALL data regardless of active tab
       tasks.push(fetchMedicines(), fetchUsers(), fetchPatients(), fetchTodayOpData(), fetchAllPrescriptions());
-    } else if (activeTab === 'todayop') {
+    } else if (activeTab === 'todayop' || activeTab === 'fees') {
       tasks.push(fetchTodayOpData());
       tasks.push(fetchUsers());
       tasks.push(fetchPatients()); // Needed for patient names in Today OP
@@ -262,25 +267,35 @@ const AdminDashboard = ({ onLogout }) => {
 
   const handleAssignDoctor = async (mrn, patientName, doctorName, rxId = null) => {
     setIsSyncing(true);
+    // Normalize doctor name to "DR. NAME" to ensure consistency in reports
+    const normalizedDocName = (doctorName || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+    let finalDocName = normalizedDocName ? `DR. ${normalizedDocName}` : '';
+
+    // Manual alias mapping
+    if (normalizedDocName === 'UMA MAHESHWARAN' || normalizedDocName === 'S. UMAMAHESWARAN') {
+      finalDocName = 'DR. S. UMAMAHESWARAN';
+    }
+
     try {
-      const doc = users.find(u => u.name === doctorName) || {};
+      const doc = users.find(u => u.name?.trim().toUpperCase() === finalDocName.toUpperCase()) || {};
       await databaseService.savePrescription({
-        id: rxId, // If rxId is provided, the API will UPDATE. If null, it will INSERT.
+        id: rxId,
         mrn,
         patientName,
         date: selectedDate,
-        doctorName: doctorName || '', // Allow empty string for reset
+        doctorName: finalDocName,
         doctorRegNo: doc.regNo || doc.reg_no || ''
       });
+      setIsPickPatientModalOpen(false);
+      setPickPatientSearch('');
       await fetchAllData();
-      if (!rxId) alert(`${patientName} added to today's list!`);
     } catch (err) {
-      console.error('Failed to assign doctor:', err);
-      alert('Failed: ' + err.message);
+      console.error(err);
+      alert('Failed to assign doctor: ' + err.message);
     } finally {
       setIsSyncing(false);
     }
-  };
+  }
 
   const applyGenderPrefix = (name, gender) => {
     let trimmedName = (name || '').trim();
@@ -391,18 +406,31 @@ const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  const handleDeleteUser = async (id) => {
-    const user = users.find(u => u.id === id);
-    if (!user) return;
+  const handleDeleteUser = async (doctor) => {
+    const isAccount = doctor.type === 'account';
+    const identifier = isAccount ? doctor.phone : doctor.name;
+    const confirmMsg = isAccount
+      ? `Are you sure you want to delete doctor account: ${doctor.name}? This will remove their login access.`
+      : `Are you sure you want to delete doctor: ${doctor.name} from the registry?`;
 
-    if (window.confirm(`Are you sure you want to delete doctor account: ${user.name}?`)) {
+    if (window.confirm(confirmMsg)) {
       try {
-        await databaseService.deleteUser(user.phone);
-        setUsers(prev => prev.filter(u => u.id !== id));
-        alert('User deleted successfully.');
+        if (isAccount) {
+          await databaseService.deleteUser(doctor.phone);
+          setUsers(prev => prev.filter(u => u.id !== doctor.id));
+        } else {
+          // Robust deletion: ensure name matches exactly what the API expects (or use the trimmed version)
+          await databaseService.deleteDoctor(doctor.name);
+          // Optimistically update local state with normalized comparison
+          setSavedDoctors(prev => prev.filter(d =>
+            d.name?.trim().toUpperCase() !== doctor.name?.trim().toUpperCase()
+          ));
+        }
+        alert(isAccount ? 'User account deleted successfully.' : 'Doctor removed from registry successfully.');
+        await fetchUsers(); // Re-fetch from DB to ensure state is perfectly in sync
       } catch (err) {
         console.error(err);
-        alert('Failed to delete user.');
+        alert('Failed to delete: ' + err.message);
       }
     }
   }
@@ -431,12 +459,6 @@ const AdminDashboard = ({ onLogout }) => {
         last_pulse: newPatient.pulse,
         last_temp: newPatient.temp,
         registration_date: registrationDateTime
-      });
-      // Automatically create a prescription stub for today so they appear in 'Today OP'
-      await databaseService.savePrescription({
-        mrn: newPatient.mrn,
-        patientName: newPatient.patientName,
-        date: selectedDate
       });
       alert('Patient registered successfully!');
       setIsRegisterModalOpen(false);
@@ -530,10 +552,54 @@ const AdminDashboard = ({ onLogout }) => {
     m.composition?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  const filteredUsers = users.filter(u =>
+  const allManagedDoctors = React.useMemo(() => {
+    return users.map(u => ({ ...u, type: 'account' }));
+  }, [users]);
+
+  const filteredUsers = allManagedDoctors.filter(u =>
     u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.phone?.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const handleUpdateFee = (rxId, field, value) => {
+    setOpFees(prev => {
+      const current = prev[rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+      const updated = { ...current, [field]: value };
+
+      // Calculate total
+      const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+      const dr = updated.drFees;
+      const med = updated.medFees;
+      const cash = updated.labCash;
+
+      const total = parseFee(dr) + parseFee(med) + parseFee(cash);
+      const allNil = [dr, med, cash].every(v => v?.toString().toLowerCase() === 'nil');
+
+      updated.total = allNil ? 'Nil' : total;
+
+      return { ...prev, [rxId?.toString()]: updated };
+    });
+  };
+
+  const handleSaveFees = async (rx) => {
+    const feeData = opFees[rx.id?.toString()];
+    if (!feeData) return;
+
+    try {
+      await databaseService.saveFees(
+        rx.mrn,
+        rx.date,
+        rx.patient_name || rx.name,
+        feeData.drFees,
+        feeData.medFees,
+        rx.id,
+        feeData.labGiven,
+        feeData.labCash
+      );
+    } catch (err) {
+      console.error('Failed to save fees:', err);
+    }
+  };
 
   const exportData = () => {
     const dataStr = JSON.stringify(medicines, null, 2)
@@ -592,6 +658,7 @@ const AdminDashboard = ({ onLogout }) => {
             <span className="icon">🩺</span> Today OP
             {(() => { const today = new Date().toLocaleDateString('en-IN'); const cnt = patients.filter(p => p.updated_at && new Date(p.updated_at).toLocaleDateString('en-IN') === today).length; return cnt > 0 ? <span style={{ marginLeft: 'auto', background: '#ef4444', color: '#fff', borderRadius: '999px', fontSize: '0.68rem', fontWeight: 700, padding: '1px 7px', minWidth: 20, textAlign: 'center' }}>{cnt}</span> : null; })()}
           </button>
+
           <button className={activeTab === 'patients' ? 'active' : ''} onClick={() => { setActiveTab('patients'); setSearchTerm(''); setIsSidebarOpen(false); }}>
             <span className="icon">🏥</span> Patient Records
           </button>
@@ -611,6 +678,7 @@ const AdminDashboard = ({ onLogout }) => {
 
         <div className="sidebar-bottom">
           <button onClick={exportData} className="export-btn">💾 Backup Data (JSON)</button>
+          <button onClick={() => navigate('/login')} className="home-btn" style={{ background: '#f0fdfa', color: '#0d9488', border: '1px solid #99f6e4', fontWeight: 800 }}>🩺 Doctor Portal</button>
           <button onClick={() => navigate('/')} className="home-btn">← Website Home</button>
           <button onClick={() => { onLogout(); navigate('/login'); }} className="logout-btn">Logout</button>
         </div>
@@ -633,7 +701,7 @@ const AdminDashboard = ({ onLogout }) => {
               <p>
                 {activeTab === 'medicines' ? `${medicines.length} Rows found` :
                   activeTab === 'patients' ? `${patients.length} Patients registered` :
-                    activeTab === 'todayop' ? (() => {
+                    activeTab === 'todayop' || activeTab === 'fees' ? (() => {
                       const rxMrns = new Set(prescriptions.map(rx => rx.mrn));
                       const cnt = patients.filter(p => {
                         const updOnDate = p.updated_at && new Date(p.updated_at).toISOString().split('T')[0] === selectedDate;
@@ -641,7 +709,7 @@ const AdminDashboard = ({ onLogout }) => {
                       }).length;
                       return `${cnt} Patients · ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`;
                     })() :
-                      activeTab === 'users' ? `${users.length} Registered Doctors` :
+                      activeTab === 'users' ? `${allManagedDoctors.length} Managed Doctors` :
                         'Global Settings'}
               </p>
             </div>
@@ -791,27 +859,53 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
           )}
           {activeTab === 'todayop' && (() => {
-            const todayOPList = prescriptions.filter(rx => {
-              if (rx.date !== selectedDate) return false;
+            const mergedTodayList = (() => {
+              const map = new Map();
+              // A. Patients registered today
+              patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
+                .forEach(p => map.set(String(p.mrn).trim(), {
+                  ...p,
+                  name: p.name || 'Unknown Patient',
+                  sex: p.sex || p.gender || ''
+                }));
 
-              // Find patient info
-              const p = patients.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim());
+              // B. Prescriptions today (overwrites or adds)
+              prescriptions.filter(rx => rx.date === selectedDate)
+                .forEach(rx => {
+                  const mrnKey = String(rx.mrn).trim();
+                  const existing = map.get(mrnKey) || {};
+                  // Ensure we get the full patient record for this MRN
+                  const p = patients.find(pat => String(pat.mrn).trim() === mrnKey) || {};
 
-              // Filter by Search Term
+                  map.set(mrnKey, {
+                    ...p,
+                    ...existing,
+                    ...rx,
+                    rxId: rx.id,
+                    name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
+                    age: p.age || existing.age || '',
+                    sex: p.sex || existing.sex || p.gender || '',
+                    phone: p.phone || existing.phone || '',
+                    place: p.place || existing.place || ''
+                  });
+                });
+              return Array.from(map.values());
+            })();
+
+            const todayOPList = mergedTodayList.filter(item => {
               const searchLower = searchTerm.toLowerCase();
+              const isNumericTerm = /^\d+$/.test(searchTerm);
               const matchesSearch = !searchTerm ||
-                (p?.name?.toLowerCase().includes(searchLower)) ||
-                (String(rx.mrn).includes(searchTerm));
+                (item.name?.toLowerCase().includes(searchLower)) ||
+                (isNumericTerm ? String(item.mrn).trim() === searchTerm.trim() : String(item.mrn).includes(searchTerm));
               if (!matchesSearch) return false;
 
-              // Filter by Doctor
-              if (selectedDoctor) {
-                return rx.doctor_name?.toUpperCase().includes(selectedDoctor.toUpperCase());
-              }
-              return true;
-            }).map(rx => {
-              const p = patients.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim());
-              return { ...p, ...rx, rxId: rx.id }; // Merge patient info with prescription info
+              const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+              const currentDoc = normalize(item.doctor_name);
+              const targetDoc = normalize(selectedDoctor);
+              const doctorMatch = !selectedDoctor || currentDoc === targetDoc;
+
+              return matchesSearch && doctorMatch;
             });
 
             return (
@@ -840,11 +934,27 @@ const AdminDashboard = ({ onLogout }) => {
                     }}
                   >ALL DOCTORS</button>
                   {(() => {
-                    const base = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
-                    const excluded = ["PRAGADEESH", "UMAMAHESWARAN", "MUHSIN"];
-                    const all = Array.from(new Set([...base, ...users.map(u => u.name.trim().toUpperCase())]))
-                      .filter(name => name && !excluded.some(ex => name.includes(ex) && !name.startsWith("DR.")) && name !== "DR. MUHSIN" && name !== "DR. ALL DOCTORS" && name !== "ALL DOCTORS");
-                    return all.map((docName, idx) => (
+                    const uNames = users.map(u => u.name);
+                    const sdNames = savedDoctors.map(d => d.name);
+                    const rxNames = allPrescriptions.map(rx => rx.doctor_name);
+
+                    // Normalize names to "DR. NAME" format to merge variations
+                    const formatName = (n) => {
+                      let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+                      if (!clean) return '';
+                      if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+                      return `DR. ${clean}`;
+                    };
+
+                    const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
+                    const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
+                      .filter(name => name &&
+                        !name.includes("MUHSIN") &&
+                        name !== "DR. ALL DOCTORS" &&
+                        name !== "ALL DOCTORS" &&
+                        name !== "DR. UNASSIGNED");
+
+                    return all.sort().map((docName, idx) => (
                       <button
                         key={idx}
                         onClick={() => setSelectedDoctor(docName)}
@@ -875,13 +985,13 @@ const AdminDashboard = ({ onLogout }) => {
                         <th>Patient Name</th>
                         <th style={{ width: 50 }}>Age</th>
                         <th style={{ width: 60 }}>Sex</th>
-                        <th>Phone</th>
-                        <th style={{ minWidth: 200 }}>Attending Doctor</th>
-                        <th style={{ width: 90, color: '#16a34a', textAlign: 'center' }}>Dr Fees (₹)</th>
-                        <th style={{ width: 90, color: '#7c3aed', textAlign: 'center' }}>Medicine (₹)</th>
-                        <th style={{ width: 90, color: '#2563eb', textAlign: 'center' }}>Lab Given</th>
-                        <th style={{ width: 90, color: '#ea580c', textAlign: 'center' }}>Lab Cash (₹)</th>
-                        <th style={{ width: 90, color: '#dc2626', fontWeight: 800, textAlign: 'center' }}>Total (₹)</th>
+                        <th style={{ minWidth: 100 }}>Phone</th>
+                        <th style={{ minWidth: 150 }}>Attending Doctor</th>
+                        <th style={{ width: 90, color: '#16a34a', fontWeight: 800, textAlign: 'center' }}>Dr Fees (₹)</th>
+                        <th style={{ width: 90, color: '#9333ea', fontWeight: 800, textAlign: 'center' }}>Medicine (₹)</th>
+                        <th style={{ width: 90, color: '#2563eb', fontWeight: 800, textAlign: 'center' }}>Lab Given</th>
+                        <th style={{ width: 90, color: '#ea580c', fontWeight: 800, textAlign: 'center' }}>Lab Cash (₹)</th>
+                        <th style={{ width: 100, color: '#be123c', fontWeight: 800, textAlign: 'center' }}>Total (₹)</th>
                         <th style={{ width: 70, color: '#0369a1', fontWeight: 800, textAlign: 'center' }}>Visits</th>
                         <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
                       </tr>
@@ -899,12 +1009,17 @@ const AdminDashboard = ({ onLogout }) => {
                             <td className="row-num-col">{idx + 1}</td>
                             <td><span style={{ padding: '2px 8px', display: 'inline-block', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', color: '#92400e' }}>OP-{String(idx + 1).padStart(2, '0')}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.name || entry.patient_name}</span></td>
+                            <td>
+                              <div style={{ padding: '0 8px' }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{entry.name || entry.patient_name}</div>
+                                {entry.place && <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>📍 {entry.place}</div>}
+                              </div>
+                            </td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.age}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.sex}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.phone}</span></td>
                             <td style={{ textAlign: 'center', minWidth: '150px' }}>
-                              {entry.doctor_name ? (
+                              {entry.doctor_name && entry.doctor_name !== 'Unassigned' ? (
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                   <span style={{
                                     padding: '2px 8px',
@@ -925,8 +1040,20 @@ const AdminDashboard = ({ onLogout }) => {
                                 </div>
                               ) : (
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', padding: '4px 0' }}>
-                                  {(Array.from(new Set(["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN", ...users.map(u => u.name.trim().toUpperCase())]))
-                                    .filter(name => name && !["PRAGADEESH", "UMAMAHESWARAN", "MUHSIN"].some(ex => name.includes(ex) && !name.startsWith("DR.")) && name !== "DR. MUHSIN"))
+                                  {(Array.from(new Set(["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST", ...users.map(u => u.name.trim().toUpperCase()), ...savedDoctors.map(d => d.name.trim().toUpperCase())]))
+                                    .map(n => {
+                                      let clean = n.replace(/^DR\.?\s*/i, '').trim();
+                                      if (!clean) return '';
+                                      if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+                                      return `DR. ${clean}`;
+                                    })
+                                    .filter(name => name &&
+                                      !name.includes("MUHSIN") &&
+                                      name !== "DR. ALL DOCTORS" &&
+                                      name !== "ALL DOCTORS" &&
+                                      name !== "DR. UNASSIGNED"))
+                                    .filter((v, i, a) => a.indexOf(v) === i)
+                                    .sort()
                                     .map((name, bIdx) => (
                                       <button
                                         key={bIdx}
@@ -938,108 +1065,58 @@ const AdminDashboard = ({ onLogout }) => {
                                 </div>
                               )}
                             </td>
-                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                              <input
-                                type="text"
-                                className="no-spinners"
-                                placeholder=""
-                                value={opFees[entry.rxId]?.drFees || ''}
-                                onChange={e => {
-                                  const drFees = e.target.value;
-                                  setOpFees(prev => {
-                                    const f = prev[entry.rxId] || {};
-                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                    const total = parseFee(drFees) + parseFee(f.medFees) + parseFee(f.labCash);
-                                    const allNil = [drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
-                                    return { ...prev, [entry.rxId]: { ...f, drFees, total: allNil ? 'Nil' : total } };
-                                  });
-                                }}
-                                onBlur={async () => {
-                                  // Use Ref to always get the LATEST state, bypassing closure staleness
-                                  const f = opFeesRef.current[entry.rxId] || {};
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
-                                  if (document.activeElement.tagName !== 'INPUT') fetchTodayOpData();
-                                }}
-                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #bbf7d0', borderRadius: 4, fontSize: '0.8rem', background: '#f0fdf4', color: '#166534', fontWeight: 600, textAlign: 'center' }}
-                              />
-                            </td>
-                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                              <input
-                                type="text"
-                                className="no-spinners"
-                                placeholder=""
-                                value={opFees[entry.rxId]?.medFees || ''}
-                                onChange={e => {
-                                  const medFees = e.target.value;
-                                  setOpFees(prev => {
-                                    const f = prev[entry.rxId] || {};
-                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                    const total = parseFee(f.drFees) + parseFee(medFees) + parseFee(f.labCash);
-                                    const allNil = [f.drFees, medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
-                                    return { ...prev, [entry.rxId]: { ...f, medFees, total: allNil ? 'Nil' : total } };
-                                  });
-                                }}
-                                onBlur={async () => {
-                                  const f = opFees[entry.rxId] || {};
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
-                                  fetchTodayOpData();
-                                }}
-                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #e9d5ff', borderRadius: 4, fontSize: '0.8rem', background: '#faf5ff', color: '#6b21a8', fontWeight: 600, textAlign: 'center' }}
-                              />
-                            </td>
-                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                              <input
-                                type="text"
-                                className="no-spinners"
-                                placeholder=""
-                                value={opFees[entry.rxId]?.labGiven || ''}
-                                onChange={e => {
-                                  const labGiven = e.target.value;
-                                  setOpFees(prev => {
-                                    const f = prev[entry.rxId] || {};
-                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                    const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(f.labCash);
-                                    const allNil = [f.drFees, f.medFees, f.labCash].every(v => v?.toString().toLowerCase() === 'nil');
-                                    return { ...prev, [entry.rxId]: { ...f, labGiven, total: allNil ? 'Nil' : total } };
-                                  });
-                                }}
-                                onBlur={async () => {
-                                  const f = opFees[entry.rxId] || {};
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
-                                  fetchTodayOpData();
-                                }}
-                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #bfdbfe', borderRadius: 4, fontSize: '0.8rem', background: '#eff6ff', color: '#1e40af', fontWeight: 600, textAlign: 'center' }}
-                              />
-                            </td>
-                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                              <input
-                                type="text"
-                                className="no-spinners"
-                                placeholder=""
-                                value={opFees[entry.rxId]?.labCash || ''}
-                                onChange={e => {
-                                  const labCash = e.target.value;
-                                  setOpFees(prev => {
-                                    const f = prev[entry.rxId] || {};
-                                    const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                                    const total = parseFee(f.drFees) + parseFee(f.medFees) + parseFee(labCash);
-                                    const allNil = [f.drFees, f.medFees, labCash].every(v => v?.toString().toLowerCase() === 'nil');
-                                    return { ...prev, [entry.rxId]: { ...f, labCash, total: allNil ? 'Nil' : total } };
-                                  });
-                                }}
-                                onBlur={async () => {
-                                  const f = opFees[entry.rxId] || {};
-                                  await databaseService.saveFees(entry.mrn, selectedDate, entry.name, f.drFees, f.medFees, entry.rxId, f.labGiven, f.labCash);
-                                  fetchTodayOpData();
-                                }}
-                                style={{ width: '80px', padding: '2px 6px', border: '1px solid #fed7aa', borderRadius: 4, fontSize: '0.8rem', background: '#fff7ed', color: '#9a3412', fontWeight: 600, textAlign: 'center' }}
-                              />
-                            </td>
-                            <td className="fee-td" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
-                              <span style={{ padding: '2px 8px', display: 'inline-block', fontWeight: 800, color: '#dc2626', background: opFees[entry.rxId]?.total ? '#fef2f2' : 'transparent', borderRadius: 4, textAlign: 'center', minWidth: 60 }}>
-                                {opFees[entry.rxId]?.total === 'Nil' ? 'Nil' : (opFees[entry.rxId]?.total !== undefined && opFees[entry.rxId]?.total !== '') ? `₹${opFees[entry.rxId].total}` : '—'}
-                              </span>
-                            </td>
+
+                            {/* Fees Columns */}
+                            {(() => {
+                              const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                              const isNil = (v) => v?.toString().toLowerCase() === 'nil';
+                              return (
+                                <>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.drFees}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.drFees) ? '#94a3b8' : '#166534', background: '#f0fdf4', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.medFees}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #e9d5ff', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce', background: '#faf5ff', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="—"
+                                      value={fee.labGiven}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8', background: '#eff6ff', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.labCash}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c', background: '#fff7ed', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 900, textAlign: 'center', color: isNil(fee.total) ? '#ef4444' : '#be123c', fontSize: '1rem' }}>
+                                      {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
+                                    </div>
+                                  </td>
+                                </>
+                              );
+                            })()}
+
                             <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
                               <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                 <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: visitColor.bg, border: `2px solid ${visitColor.border}`, borderRadius: '50%', fontWeight: 900, fontSize: '0.85rem', color: visitColor.text, lineHeight: 1 }}>
@@ -1083,32 +1160,312 @@ const AdminDashboard = ({ onLogout }) => {
                         );
                       })}
                     </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#1e3047', color: 'white' }}>
-                        <td colSpan={8} style={{ padding: '10px 12px', fontWeight: 700, fontSize: '0.85rem', letterSpacing: 0.3 }}>➤ CATEGORY TOTALS</td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#86efac', background: 'rgba(22,163,74,0.1)' }}>
-                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.drFees; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
-                        </td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#c4b5fd', background: 'rgba(124,58,237,0.1)' }}>
-                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.medFees; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
-                        </td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#93c5fd', background: 'rgba(59,130,246,0.1)' }}>
-                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.labGiven; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
-                        </td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '0.9rem', color: '#fdba74', background: 'rgba(234,88,12,0.1)' }}>
-                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.labCash; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
-                        </td>
-                        <td style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 800, fontSize: '1rem', color: '#fca5a5', background: 'rgba(220,38,38,0.25)', borderRadius: 4 }}>
-                          ₹{todayOPList.reduce((sum, entry) => { const v = opFees[entry.rxId]?.total; return sum + (v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0)); }, 0) || '0'}
-                        </td>
-                        <td style={{ padding: '10px 8px' }}></td>
-                      </tr>
-                    </tfoot>
+                    {todayOPList.length > 0 && (() => {
+                      const totals = todayOPList.reduce((acc, entry) => {
+                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                        acc.dr += parseFee(fee.drFees);
+                        acc.med += parseFee(fee.medFees);
+                        acc.labGiven += parseFee(fee.labGiven);
+                        acc.labCash += parseFee(fee.labCash);
+                        acc.grand += parseFee(fee.total);
+                        return acc;
+                      }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
+
+                      return (
+                        <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
+                          <tr style={{ height: '40px' }}>
+                            <td colSpan="8" style={{ background: '#1e293b', padding: '0 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                                <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
+                              </div>
+                            </td>
+                            <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.dr}</td>
+                            <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.med}</td>
+                            <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labGiven}</td>
+                            <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labCash}</td>
+                            <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.grand}</td>
+                            <td colSpan="2" style={{ background: '#1e293b' }}></td>
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
                   </table>
                 )}
               </div>
             );
           })()}
+
+          {activeTab === 'fees' && (() => {
+            const mergedTodayList = (() => {
+              const map = new Map();
+              patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
+                .forEach(p => map.set(String(p.mrn).trim(), {
+                  ...p,
+                  name: p.name || 'Unknown Patient',
+                  sex: p.sex || p.gender || ''
+                }));
+
+              prescriptions.filter(rx => rx.date === selectedDate)
+                .forEach(rx => {
+                  const mrnKey = String(rx.mrn).trim();
+                  const existing = map.get(mrnKey) || {};
+                  const p = patients.find(pat => String(pat.mrn).trim() === mrnKey) || {};
+
+                  map.set(mrnKey, {
+                    ...p,
+                    ...existing,
+                    ...rx,
+                    rxId: rx.id,
+                    name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
+                    age: p.age || existing.age || '',
+                    sex: p.sex || existing.sex || p.gender || '',
+                    phone: p.phone || existing.phone || '',
+                    place: p.place || existing.place || '',
+                    drFees: rx.dr_fees,
+                    medFees: rx.med_fees,
+                    labGiven: rx.lab_given,
+                    labCash: rx.lab_cash
+                  });
+                });
+              return Array.from(map.values());
+            })();
+
+            const feesOPList = mergedTodayList.filter(item => {
+              const searchLower = searchTerm.toLowerCase();
+              const isNumericTerm = /^\d+$/.test(searchTerm);
+              const matchesSearch = !searchTerm ||
+                (item.name?.toLowerCase().includes(searchLower)) ||
+                (isNumericTerm ? String(item.mrn).trim() === searchTerm.trim() : String(item.mrn).includes(searchTerm));
+              if (!matchesSearch) return false;
+
+              const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+              const currentDoc = normalize(item.doctor_name);
+              const targetDoc = normalize(selectedDoctor);
+              const doctorMatch = !selectedDoctor || currentDoc === targetDoc;
+
+              return matchesSearch && doctorMatch;
+            });
+
+            return (
+              <div className="grid-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Filters Row */}
+                <div style={{ display: 'flex', gap: 15, alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>DATE:</span>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={e => setSelectedDate(e.target.value)}
+                      style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.75rem', outline: 'none', background: 'white', fontWeight: 600, color: '#1e293b' }}
+                    />
+                  </div>
+                  <div style={{ width: '1px', height: '20px', background: '#e2e8f0' }}></div>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>FILTER BY DOCTOR:</span>
+                  <button
+                    onClick={() => setSelectedDoctor(null)}
+                    style={{
+                      padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                      background: selectedDoctor === null ? '#1e293b' : 'white',
+                      color: selectedDoctor === null ? 'white' : '#475569',
+                      border: '1px solid ' + (selectedDoctor === null ? '#1e293b' : '#cbd5e1'),
+                      whiteSpace: 'nowrap'
+                    }}
+                  >ALL DOCTORS</button>
+                  {(() => {
+                    const uNames = users.map(u => u.name);
+                    const sdNames = savedDoctors.map(d => d.name);
+                    const rxNames = allPrescriptions.map(rx => rx.doctor_name);
+                    const formatName = (n) => {
+                      let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+                      return clean ? `DR. ${clean}` : '';
+                    };
+                    const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
+                    const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
+                      .filter(name => name && !name.includes("MUHSIN") && name !== "DR. ALL DOCTORS");
+
+                    return all.sort().map((docName, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedDoctor(docName)}
+                        style={{
+                          padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                          background: selectedDoctor === docName ? '#2563eb' : 'white',
+                          color: selectedDoctor === docName ? 'white' : '#475569',
+                          border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
+                          whiteSpace: 'nowrap'
+                        }}
+                      >{docName.toUpperCase()}</button>
+                    ));
+                  })()}
+                </div>
+
+                {feesOPList.length === 0 ? (
+                  <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>💰</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No patients registered today for fees entry</div>
+                  </div>
+                ) : (
+                  <table className="excel-table">
+                    <thead>
+                      <tr>
+                        <th className="row-num-col">#</th>
+                        <th>MRN</th>
+                        <th>Patient Name</th>
+                        <th style={{ minWidth: 100 }}>Place</th>
+                        <th style={{ color: '#16a34a', fontWeight: 800 }}>Dr Fees (₹)</th>
+                        <th style={{ color: '#9333ea', fontWeight: 800 }}>Medicine (₹)</th>
+                        <th style={{ color: '#2563eb', fontWeight: 800 }}>Lab Given</th>
+                        <th style={{ color: '#ea580c', fontWeight: 800 }}>Lab Cash (₹)</th>
+                        <th style={{ color: '#be123c', fontWeight: 800 }}>Total (₹)</th>
+                        <th style={{ width: 80, textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {feesOPList.map((entry, idx) => {
+                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                        const isNil = (v) => v?.toString().toLowerCase() === 'nil';
+                        return (
+                          <tr key={entry.rxId} data-rx-id={entry.rxId}>
+                            <td className="row-num-col">{idx + 1}</td>
+                            <td><span style={{ fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
+                            <td style={{ fontWeight: 600, color: '#475569' }}>{entry.name || entry.patient_name}</td>
+                            <td style={{ fontWeight: 600, color: '#64748b' }}>{entry.place || '—'}</td>
+                            <td>
+                              <input
+                                placeholder="0"
+                                value={fee.drFees}
+                                onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
+                                onBlur={() => handleSaveFees(entry)}
+                                style={{
+                                  border: '1px solid #bbf7d0',
+                                  borderRadius: 8,
+                                  padding: '8px',
+                                  width: '100%',
+                                  fontWeight: 700,
+                                  textAlign: 'center',
+                                  color: isNil(fee.drFees) ? '#94a3b8' : '#166534',
+                                  background: '#f0fdf4'
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                placeholder="0"
+                                value={fee.medFees}
+                                onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
+                                onBlur={() => handleSaveFees(entry)}
+                                style={{
+                                  border: '1px solid #e9d5ff',
+                                  borderRadius: 8,
+                                  padding: '8px',
+                                  width: '100%',
+                                  fontWeight: 700,
+                                  textAlign: 'center',
+                                  color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce',
+                                  background: '#faf5ff'
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                placeholder="—"
+                                value={fee.labGiven}
+                                onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
+                                onBlur={() => handleSaveFees(entry)}
+                                style={{
+                                  border: '1px solid #bfdbfe',
+                                  borderRadius: 8,
+                                  padding: '8px',
+                                  width: '100%',
+                                  fontWeight: 700,
+                                  textAlign: 'center',
+                                  color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8',
+                                  background: '#eff6ff'
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                placeholder="0"
+                                value={fee.labCash}
+                                onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
+                                onBlur={() => handleSaveFees(entry)}
+                                style={{
+                                  border: '1px solid #fed7aa',
+                                  borderRadius: 8,
+                                  padding: '8px',
+                                  width: '100%',
+                                  fontWeight: 700,
+                                  textAlign: 'center',
+                                  color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c',
+                                  background: '#fff7ed'
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <div style={{
+                                background: '#fff1f2',
+                                border: '1px solid #fecdd3',
+                                borderRadius: 8,
+                                padding: '8px',
+                                width: '100%',
+                                fontWeight: 900,
+                                textAlign: 'center',
+                                color: isNil(fee.total) ? '#ef4444' : '#be123c',
+                                fontSize: '1rem'
+                              }}>
+                                {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleSaveFees(entry)}
+                                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}
+                              >💾 Save</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {feesOPList.length > 0 && (() => {
+                      const totals = feesOPList.reduce((acc, entry) => {
+                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                        acc.dr += parseFee(fee.drFees);
+                        acc.med += parseFee(fee.medFees);
+                        acc.labGiven += parseFee(fee.labGiven);
+                        acc.labCash += parseFee(fee.labCash);
+                        acc.grand += parseFee(fee.total);
+                        return acc;
+                      }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
+
+                      return (
+                        <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
+                          <tr style={{ height: '44px' }}>
+                            <td colSpan="4" style={{ background: '#1e293b', padding: '0 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                                <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
+                              </div>
+                            </td>
+                            <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.dr}</td>
+                            <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.med}</td>
+                            <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labGiven}</td>
+                            <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labCash}</td>
+                            <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.grand}</td>
+                            <td style={{ background: '#1e293b' }}></td>
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
+                  </table>
+                )}
+              </div>
+            );
+          })()}
+
           {activeTab === 'users' && (
             <div className="grid-container">
               <table className="excel-table">
@@ -1126,7 +1483,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </thead>
                 <tbody>
                   {filteredUsers.map((user, idx) => (
-                    <tr key={user.id}>
+                    <tr key={user.id || user.name}>
                       <td className="row-num-col">{idx + 1}</td>
                       <td>
                         <input
@@ -1146,7 +1503,7 @@ const AdminDashboard = ({ onLogout }) => {
                       </td>
                       <td>
                         <input
-                          value={user.consultant || ''}
+                          value={user.consultant || user.role || ''}
                           readOnly
                           style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
                           placeholder="Consultant..."
@@ -1161,43 +1518,52 @@ const AdminDashboard = ({ onLogout }) => {
                         />
                       </td>
                       <td>
-                        <input
-                          value={user.phone}
-                          onChange={(e) => handleUpdateUser(user.id, 'phone', e.target.value)}
-                          placeholder="Mobile Number..."
-                        />
+                        {user.type === 'account' ? (
+                          <input
+                            value={user.phone}
+                            onChange={(e) => handleUpdateUser(user.id, 'phone', e.target.value)}
+                            placeholder="Mobile Number..."
+                          />
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', paddingLeft: 8 }}>N/A (Registry Only)</span>
+                        )}
                       </td>
                       <td>
-                        <input
-                          type="text"
-                          value={user.password}
-                          readOnly
-                          style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
-                          placeholder="Password..."
-                        />
+                        {user.type === 'account' ? (
+                          <input
+                            type="text"
+                            value={user.password}
+                            readOnly
+                            style={{ background: '#f8fafc', color: '#64748b', cursor: 'default' }}
+                            placeholder="Password..."
+                          />
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8', paddingLeft: 8 }}>N/A</span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
                           <button
                             onClick={() => {
+                              if (user.type !== 'account') return;
                               setEditingDoctorAccount({
                                 id: user.id,
                                 name: user.name || '',
                                 phone: user.phone || '',
                                 password: user.password || '',
                                 qualification: user.qualification || '',
-                                consultant: user.consultant || '',
+                                consultant: user.consultant || user.role || '',
                                 reg_no: user.reg_no || user.regNo || ''
                               });
                               setIsDoctorAccountEditModalOpen(true);
                             }}
                             className="excel-del-row"
-                            style={{ color: '#2563eb' }}
-                            title="Edit Doctor Account"
+                            style={{ color: user.type === 'account' ? '#2563eb' : '#cbd5e1', cursor: user.type === 'account' ? 'pointer' : 'not-allowed' }}
+                            title={user.type === 'account' ? "Edit Doctor Account" : "Registry doctors cannot be edited directly; please add a new account if needed."}
                           >
                             ✏️
                           </button>
-                          <button onClick={() => handleDeleteUser(user.id)} className="excel-del-row" title="Delete Account">×</button>
+                          <button onClick={() => handleDeleteUser(user)} className="excel-del-row" title="Delete Account">×</button>
                         </div>
                       </td>
                     </tr>
@@ -1215,10 +1581,11 @@ const AdminDashboard = ({ onLogout }) => {
           )}
 
           {activeTab === 'patients' && (() => {
+            const isNumericTerm = /^\d+$/.test(searchTerm);
             const filteredPatients = patients.filter(p =>
               p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              p.mrn?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              p.phone?.toLowerCase().includes(searchTerm.toLowerCase())
+              (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
+              (searchTerm.length >= 5 && p.phone?.toLowerCase().includes(searchTerm.toLowerCase()))
             );
 
             // OPTIMIZATION: Pre-group prescriptions by MRN for O(1) lookup in loop
@@ -1248,6 +1615,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ width: 60 }}>Age</th>
                       <th style={{ width: 60 }}>Sex</th>
                       <th>Phone</th>
+                      <th>Place</th>
                       <th>Date</th>
                       <th>Weight</th>
                       <th>BP</th>
@@ -1268,6 +1636,7 @@ const AdminDashboard = ({ onLogout }) => {
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.age}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.sex}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.phone}</span></td>
+                            <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 600, color: '#64748b' }}>{p.place || '—'}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block', whiteSpace: 'nowrap', fontSize: '0.7rem', lineHeight: 1.4 }}>
                               {(() => {
                                 // Prefer registration_date (static) for the table view
@@ -1382,8 +1751,15 @@ const AdminDashboard = ({ onLogout }) => {
             const monthRx = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
 
             let grandTotalLab = 0;
+            const formatName = (n) => {
+              let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+              if (!clean) return 'Unassigned';
+              if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+              return `DR. ${clean}`;
+            };
+
             monthRx.forEach(rx => {
-              const dName = rx.doctor_name || 'Unassigned';
+              const dName = formatName(rx.doctor_name);
               if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0 };
               const df = rx.dr_fees?.toString().toLowerCase();
               const mf = rx.med_fees?.toString().toLowerCase();
@@ -1426,6 +1802,88 @@ const AdminDashboard = ({ onLogout }) => {
                   </div>
                   <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
                     <button
+                      onClick={async () => {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = `
+                          <div style="padding: 40px; font-family: sans-serif; color: #334155;">
+                            <h1 style="text-align: center; margin-bottom: 5px; color: #1e293b;">${clinicSettings.name}</h1>
+                            <h2 style="text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; text-transform: uppercase;">MONTHLY COLLECTION REPORT: ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 30px;">
+                              <thead>
+                                <tr>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: left; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Doctor Name</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Visits</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${monthlyData.map(d => `
+                                  <tr>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">${d.doctorName}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.count}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
+                                  </tr>
+                                `).join('')}
+                              </tbody>
+                              <tfoot>
+                                <tr style="font-weight: bold; background: #f1f5f9;">
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">MONTHLY TOTAL</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                            <div style="margin-top: 50px; display: flex; justify-content: space-between;">
+                              <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Prepared By</div>
+                              <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Authorized Signature</div>
+                            </div>
+                          </div>
+                        `;
+
+                        const opt = {
+                          margin: 10,
+                          filename: `Monthly_Report_${selectedMonth}.pdf`,
+                          image: { type: 'jpeg', quality: 0.98 },
+                          html2canvas: { scale: 2 },
+                          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                        };
+
+                        try {
+                          setIsSyncing(true);
+                          const worker = window.html2pdf().set(opt).from(tempDiv);
+                          const pdfBlob = await worker.output('blob');
+                          const pdfFile = new File([pdfBlob], opt.filename, { type: 'application/pdf' });
+
+                          if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                            await navigator.share({
+                              files: [pdfFile],
+                              title: `Monthly Report - ${selectedMonth}`
+                            });
+                          } else {
+                            await worker.save();
+                          }
+                        } catch (err) {
+                          console.error('Share failed:', err);
+                          alert('Failed to share PDF');
+                        } finally {
+                          setIsSyncing(false);
+                        }
+                      }}
+                      className="excel-add-btn"
+                      style={{ background: '#10b981' }}
+                    >
+                      ✉️ Share Monthly Report
+                    </button>
+                    <button
                       onClick={() => {
                         const printWindow = window.open('', '_blank');
                         const reportHtml = `
@@ -1451,11 +1909,11 @@ const AdminDashboard = ({ onLogout }) => {
                                   <thead>
                                     <tr>
                                       <th>Doctor Name</th>
-                                      <th style="text-align: center;">Total Visits</th>
-                                      <th style="text-align: right;">Dr Fees (₹)</th>
-                                      <th style="text-align: right;">Medicine Fees (₹)</th>
-                                      <th style="text-align: right;">Lab Cash (₹)</th>
-                                      <th style="text-align: right;">Grand Total (₹)</th>
+                                      <th style="text-align: center;">Visits</th>
+                                      <th style="text-align: center;">Dr Fees</th>
+                                      <th style="text-align: center;">Medicine</th>
+                                      <th style="text-align: center;">Lab Cash</th>
+                                      <th style="text-align: center;">Total</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -1463,10 +1921,10 @@ const AdminDashboard = ({ onLogout }) => {
                                       <tr>
                                         <td>${d.doctorName}</td>
                                         <td style="text-align: center;">${d.count}</td>
-                                        <td style="text-align: right;">${d.drFees.toLocaleString()}</td>
-                                        <td style="text-align: right;">${d.medFees.toLocaleString()}</td>
-                                        <td style="text-align: right;">${d.labCash.toLocaleString()}</td>
-                                        <td style="text-align: right;">${d.total.toLocaleString()}</td>
+                                        <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
+                                        <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
+                                        <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                        <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                       </tr>
                                     `).join('')}
                                   </tbody>
@@ -1474,10 +1932,10 @@ const AdminDashboard = ({ onLogout }) => {
                                     <tr class="total-row">
                                       <td>MONTHLY TOTAL</td>
                                       <td style="text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
-                                      <td style="text-align: right;">₹${grandTotalDr.toLocaleString()}</td>
-                                      <td style="text-align: right;">₹${grandTotalMed.toLocaleString()}</td>
-                                      <td style="text-align: right;">₹${grandTotalLab.toLocaleString()}</td>
-                                      <td style="text-align: right;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
+                                      <td style="text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
                                     </tr>
                                   </tfoot>
                                 </table>
@@ -1508,32 +1966,25 @@ const AdminDashboard = ({ onLogout }) => {
                       <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
                         <th style={{ padding: '15px', textAlign: 'left' }}>Doctor Name</th>
                         <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Dr Fees (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Medicine Fees (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Lab Cash (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Grand Total (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
                       </tr>
                     </thead>
                     <tbody style={{ fontSize: '0.9rem' }}>
                       {monthlyData.map((d, idx) => (
                         <tr key={idx} style={{
                           background: idx % 2 === 0 ? '#fff' : '#fcfcfc',
-                          transition: 'all 0.2s'
+                          transition: 'all 0.2s',
+                          borderBottom: '1px solid #f1f5f9'
                         }}>
-                          <td style={{ padding: '12px 15px', color: '#1e293b', fontWeight: 600 }}>{d.doctorName}</td>
-                          <td style={{ textAlign: 'center', padding: '12px 15px', color: '#64748b', fontWeight: 700 }}>{d.count || '-'}</td>
-                          <td style={{ textAlign: 'center', color: '#16a34a', fontWeight: 600, padding: '12px 15px' }}>{d.drFees ? d.drFees.toLocaleString() : '-'}</td>
-                          <td style={{ textAlign: 'center', color: '#9333ea', fontWeight: 600, padding: '12px 15px' }}>{d.medFees ? d.medFees.toLocaleString() : '-'}</td>
-                          <td style={{ textAlign: 'center', color: '#ea580c', fontWeight: 600, padding: '12px 15px' }}>{d.labCash ? d.labCash.toLocaleString() : '-'}</td>
-                          <td style={{
-                            textAlign: 'center',
-                            color: '#dc2626',
-                            fontWeight: 700,
-                            padding: '12px 15px',
-                            background: d.total > 0 ? 'rgba(239, 68, 68, 0.05)' : 'transparent'
-                          }}>
-                            {d.total ? `₹${d.total.toLocaleString()}` : '-'}
-                          </td>
+                          <td style={{ padding: '15px', color: '#1e293b', fontWeight: 600 }}>{d.doctorName}</td>
+                          <td style={{ textAlign: 'center', padding: '15px', color: '#475569', fontWeight: 700 }}>{d.count || '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '15px', color: '#be123c', fontWeight: 900 }}>{d.total ? `₹${d.total.toLocaleString()}` : '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1541,10 +1992,10 @@ const AdminDashboard = ({ onLogout }) => {
                       <tr style={{ background: '#1e293b', color: 'white', fontWeight: 800 }}>
                         <td style={{ padding: '20px 15px' }}>MONTHLY SUMMARY</td>
                         <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyData.reduce((s, d) => s + d.count, 0)}</td>
-                        <td style={{ textAlign: 'center', color: '#4ade80', padding: '20px 15px' }}>₹{grandTotalDr.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', color: '#c084fc', padding: '20px 15px' }}>₹{grandTotalMed.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', color: '#fb923c', padding: '20px 15px' }}>₹{grandTotalLab.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', background: '#ef4444', fontSize: '1.2rem', padding: '20px 15px', borderRadius: '0 0 12px 0' }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{grandTotalDr.toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{grandTotalMed.toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{grandTotalLab.toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1572,696 +2023,730 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
           )}
         </div>
-      </main>
+      </main >
 
       {/* ── Prescription History Modal ── */}
-      {modalPatient && (() => {
-        // Filter out auto-created stubs (assigned doctor only, no real prescription content)
-        const patientRxs = modalPatientHistory.filter(rx => {
-          let meds = [];
-          try { meds = JSON.parse(rx.medicines || '[]'); } catch (e) { }
-          const hasMedicines = Array.isArray(meds) && meds.length > 0;
-          const hasDiagnosis = !!(rx.diagnosis && rx.diagnosis.trim());
-          const hasComplaints = !!(rx.complaints && rx.complaints.trim());
-          const hasAdvice = !!(rx.advice && rx.advice.trim());
-          // Keep only real prescriptions that have at least some content
-          return hasMedicines || hasDiagnosis || hasComplaints || hasAdvice;
-        });
-        const activeRx = patientRxs[selectedRxIndex];
-        let previewData = null;
-        if (activeRx) {
-          const docInfo = users.find(u => u.name === activeRx.doctor_name) || {};
-          let vitals = {};
-          try { vitals = JSON.parse(activeRx.vitals || '{}'); } catch (e) { }
-          let meds = [];
-          try { meds = JSON.parse(activeRx.medicines || '[]'); } catch (e) { }
+      {
+        modalPatient && (() => {
+          // Filter out auto-created stubs (assigned doctor only, no real prescription content)
+          const patientRxs = modalPatientHistory.filter(rx => {
+            let meds = [];
+            try { meds = JSON.parse(rx.medicines || '[]'); } catch (e) { }
+            const hasMedicines = Array.isArray(meds) && meds.length > 0;
+            const hasDiagnosis = !!(rx.diagnosis && rx.diagnosis.trim());
+            const hasComplaints = !!(rx.complaints && rx.complaints.trim());
+            const hasAdvice = !!(rx.advice && rx.advice.trim());
+            // Keep only real prescriptions that have at least some content
+            return hasMedicines || hasDiagnosis || hasComplaints || hasAdvice;
+          });
+          const activeRx = patientRxs[selectedRxIndex];
+          let previewData = null;
+          if (activeRx) {
+            const docInfo = users.find(u => u.name === activeRx.doctor_name) || {};
+            let vitals = {};
+            try { vitals = JSON.parse(activeRx.vitals || '{}'); } catch (e) { }
+            let meds = [];
+            try { meds = JSON.parse(activeRx.medicines || '[]'); } catch (e) { }
 
-          previewData = {
-            mrn: activeRx.mrn || modalPatient.mrn || '',
-            date: activeRx.date || '',
-            patientName: activeRx.patient_name || modalPatient.name || '',
-            age: modalPatient.age || '',
-            gender: modalPatient.sex || '',
-            phone: modalPatient.phone || '',
-            weight: vitals.weight || '',
-            bp: vitals.bp || '',
-            pulse: vitals.pulse || '',
-            temp: vitals.temp || '',
-            complaints: activeRx.complaints || '',
-            diagnosis: activeRx.diagnosis || '',
-            medicines: meds,
-            advice: activeRx.advice || '',
-            followUp: activeRx.follow_up || '',
-            doctorName: activeRx.doctor_name || '',
-            doctorQualifications: docInfo.qualification || '',
-            doctorRole: docInfo.consultant || '',
-            doctorRegNo: activeRx.doctor_reg_no || ''
-          };
-        }
+            previewData = {
+              mrn: activeRx.mrn || modalPatient.mrn || '',
+              date: activeRx.date || '',
+              patientName: activeRx.patient_name || modalPatient.name || '',
+              age: modalPatient.age || '',
+              gender: modalPatient.sex || '',
+              phone: modalPatient.phone || '',
+              weight: vitals.weight || '',
+              bp: vitals.bp || '',
+              pulse: vitals.pulse || '',
+              temp: vitals.temp || '',
+              complaints: activeRx.complaints || '',
+              diagnosis: activeRx.diagnosis || '',
+              medicines: meds,
+              advice: activeRx.advice || '',
+              followUp: activeRx.follow_up || '',
+              doctorName: activeRx.doctor_name || '',
+              doctorQualifications: docInfo.qualification || '',
+              doctorRole: docInfo.consultant || '',
+              doctorRegNo: activeRx.doctor_reg_no || ''
+            };
+          }
 
-        return (
-          <div className="admin-modal-overlay">
-            <div className="admin-modal-content">
-              {/* Modal Left: Prescriptions List */}
-              <div className="admin-modal-sidebar">
-                <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', position: 'relative' }}>
-                  <div>
-                    <h3 style={{ margin: 0 }}>Prescriptions</h3>
-                    <span className="count-badge">{patientRxs.length} Records</span>
-                  </div>
-                  <button className="modal-header-close" onClick={() => setModalPatient(null)} style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#ef4444',
-                    fontSize: '1.8rem',
-                    cursor: 'pointer',
-                    fontWeight: '700',
-                    lineHeight: '1',
-                    padding: '0 5px'
-                  }}>×</button>
-                </div>
-                <div className="sidebar-list">
-                  {patientRxs.map((rx, idx) => (
-                    <div
-                      key={idx}
-                      className={`sidebar-item ${selectedRxIndex === idx ? 'active' : ''}`}
-                      onClick={() => setSelectedRxIndex(idx)}
-                    >
-                      <div className="rx-date">📅 {rx.date}</div>
-                      <div className="rx-doc">Dr. {rx.doctor_name}</div>
-                      {rx.diagnosis && <div className="rx-diag">{rx.diagnosis}</div>}
+          return (
+            <div className="admin-modal-overlay">
+              <div className="admin-modal-content">
+                {/* Modal Left: Prescriptions List */}
+                <div className="admin-modal-sidebar">
+                  <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', position: 'relative' }}>
+                    <div>
+                      <h3 style={{ margin: 0 }}>Prescriptions</h3>
+                      <span className="count-badge">{patientRxs.length} Records</span>
                     </div>
-                  ))}
-                  {patientRxs.length === 0 && (
-                    <div className="no-records">No prescriptions found.</div>
+                    <button className="modal-header-close" onClick={() => setModalPatient(null)} style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#ef4444',
+                      fontSize: '1.8rem',
+                      cursor: 'pointer',
+                      fontWeight: '700',
+                      lineHeight: '1',
+                      padding: '0 5px'
+                    }}>×</button>
+                  </div>
+                  <div className="sidebar-list">
+                    {patientRxs.map((rx, idx) => (
+                      <div
+                        key={idx}
+                        className={`sidebar-item ${selectedRxIndex === idx ? 'active' : ''}`}
+                        onClick={() => setSelectedRxIndex(idx)}
+                      >
+                        <div className="rx-date">📅 {rx.date}</div>
+                        <div className="rx-doc">Dr. {rx.doctor_name}</div>
+                        {rx.diagnosis && <div className="rx-diag">{rx.diagnosis}</div>}
+                      </div>
+                    ))}
+                    {patientRxs.length === 0 && (
+                      <div className="no-records">No prescriptions found.</div>
+                    )}
+                  </div>
+                  <button className="modal-close-btn" onClick={() => setModalPatient(null)}>Close Viewer</button>
+                </div>
+
+                {/* Modal Right: Selected Prescription Live Preview */}
+                <div className="admin-modal-preview">
+                  {previewData ? (
+                    <>
+                      <div className="preview-toolbar">
+                        <div className="toolbar-info">
+                          <strong>Viewing Prescription</strong>
+                          <span>Patient ID: {previewData.mrn}</span>
+                        </div>
+                        <div className="toolbar-actions">
+                          <button className="print-btn" onClick={() => {
+                            const paperEl = document.getElementById('prescription-paper');
+                            if (!paperEl) { alert('Prescription preview element not found.'); return; }
+                            const printWindow = window.open('', '_blank', 'width=900,height=800');
+                            printWindow.document.write(
+                              '<!DOCTYPE html>' +
+                              '<html>' +
+                              '<head>' +
+                              '<meta charset="utf-8" />' +
+                              '<title>Prescription Preview</title>' +
+                              '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
+                              '<style>' +
+                              '@page { margin: 0; }' +
+                              '* { box-sizing: border-box; margin: 0; padding: 0; }' +
+                              'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
+                              '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
+                              '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
+                              '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
+                              '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 1.2cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
+                              '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } #prescription-paper { box-shadow: none !important; padding-top: 1cm !important; margin: 0 !important; } }' +
+                              '</style>' +
+                              '</head>' +
+                              '<body>' +
+                              '<div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>' +
+                              '<div id="paper-wrapper">' + paperEl.outerHTML + '</div>' +
+                              '</body>' +
+                              '</html>'
+                            );
+                            printWindow.document.close();
+                          }}>🖨️ Print Prescription</button>
+                        </div>
+                      </div>
+                      <div className="preview-paper-scroller">
+                        <div className="paper-scale-container">
+                          <PrescriptionPreview data={previewData} />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="no-preview-selected">Select a prescription from the sidebar to view it.</div>
                   )}
                 </div>
-                <button className="modal-close-btn" onClick={() => setModalPatient(null)}>Close Viewer</button>
-              </div>
-
-              {/* Modal Right: Selected Prescription Live Preview */}
-              <div className="admin-modal-preview">
-                {previewData ? (
-                  <>
-                    <div className="preview-toolbar">
-                      <div className="toolbar-info">
-                        <strong>Viewing Prescription</strong>
-                        <span>Patient ID: {previewData.mrn}</span>
-                      </div>
-                      <div className="toolbar-actions">
-                        <button className="print-btn" onClick={() => {
-                          const paperEl = document.getElementById('prescription-paper');
-                          if (!paperEl) { alert('Prescription preview element not found.'); return; }
-                          const printWindow = window.open('', '_blank', 'width=900,height=800');
-                          printWindow.document.write(
-                            '<!DOCTYPE html>' +
-                            '<html>' +
-                            '<head>' +
-                            '<meta charset="utf-8" />' +
-                            '<title>Prescription Preview</title>' +
-                            '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
-                            '<style>' +
-                            '@page { margin: 0; }' +
-                            '* { box-sizing: border-box; margin: 0; padding: 0; }' +
-                            'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
-                            '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
-                            '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
-                            '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
-                            '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 1.2cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
-                            '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } #prescription-paper { box-shadow: none !important; padding-top: 1cm !important; margin: 0 !important; } }' +
-                            '</style>' +
-                            '</head>' +
-                            '<body>' +
-                            '<div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>' +
-                            '<div id="paper-wrapper">' + paperEl.outerHTML + '</div>' +
-                            '</body>' +
-                            '</html>'
-                          );
-                          printWindow.document.close();
-                        }}>🖨️ Print Prescription</button>
-                      </div>
-                    </div>
-                    <div className="preview-paper-scroller">
-                      <div className="paper-scale-container">
-                        <PrescriptionPreview data={previewData} />
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="no-preview-selected">Select a prescription from the sidebar to view it.</div>
-                )}
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()
+      }
 
       {/* ── Quick Doctor Edit Modal ── */}
-      {isDoctorEditModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(2px)' }}>
-          <div style={{ background: 'white', width: '90%', maxWidth: '450px', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #e2e8f0' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', whiteSpace: 'nowrap' }}>Manage Doctor List</h3>
-              <button onClick={() => setIsDoctorEditModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}>×</button>
-            </div>
+      {
+        isDoctorEditModalOpen && (
+          <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, backdropFilter: 'blur(2px)' }}>
+            <div style={{ background: 'white', width: '90%', maxWidth: '450px', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #e2e8f0' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b', whiteSpace: 'nowrap' }}>Manage Doctor List</h3>
+                <button onClick={() => setIsDoctorEditModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}>×</button>
+              </div>
 
-            <div style={{ padding: '20px' }}>
-              <div style={{ marginBottom: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Add New Doctor Name:</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="text"
-                    value={editingDoctorName}
-                    onChange={(e) => setEditingDoctorName(e.target.value.toUpperCase())}
-                    placeholder="E.g. DR. JOHN DOE"
-                    style={{ flex: 1, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', outline: 'none' }}
-                    onKeyDown={async (e) => {
-                      if (e.key === 'Enter') {
+              <div style={{ padding: '20px' }}>
+                <div style={{ marginBottom: '20px', background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Add New Doctor Name:</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input
+                      type="text"
+                      value={editingDoctorName}
+                      onChange={(e) => setEditingDoctorName(e.target.value.toUpperCase())}
+                      placeholder="E.g. DR. JOHN DOE"
+                      style={{ flex: 1, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', outline: 'none' }}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter') {
+                          if (!editingDoctorName.trim()) return;
+                          await databaseService.saveDoctor({ name: editingDoctorName });
+                          setEditingDoctorName('');
+                          await fetchAllData();
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={async () => {
                         if (!editingDoctorName.trim()) return;
                         await databaseService.saveDoctor({ name: editingDoctorName });
                         setEditingDoctorName('');
                         await fetchAllData();
-                      }
-                    }}
-                  />
-                  <button
-                    onClick={async () => {
-                      if (!editingDoctorName.trim()) return;
-                      await databaseService.saveDoctor({ name: editingDoctorName });
-                      setEditingDoctorName('');
-                      await fetchAllData();
-                    }}
-                    style={{ padding: '10px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    ADD
-                  </button>
+                      }}
+                      style={{ padding: '10px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      ADD
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: 'white' }}>
+                  {savedDoctors.map((u, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', borderBottom: idx === savedDoctors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                      <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}>{u.name}</span>
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Remove ${u.name}?`)) {
+                            await databaseService.deleteDoctor(u.name);
+                            await fetchAllData();
+                          }
+                        }}
+                        style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '28px', height: '28px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>×</span>
+                      </button>
+                    </div>
+                  ))}
+
+                  {savedDoctors.length === 0 && (
+                    <div style={{ padding: '30px', textAlign: 'center' }}>
+                      <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 10px 0' }}>No doctors listed.</p>
+                      <button
+                        onClick={async () => {
+                          if (confirm("This will remove all current names and replace them with the 5 default doctors. Continue?")) {
+                            // 1. Delete all existing from DB (by name)
+                            for (const u of users) {
+                              await databaseService.deleteDoctor(u.name);
+                            }
+                            // 2. Add the 5 correct ones
+                            const defaults = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
+                            for (const name of defaults) {
+                              await databaseService.saveDoctor({ name });
+                            }
+                            await fetchAllData();
+                          }
+                        }}
+                        style={{ fontSize: '0.75rem', color: '#2563eb', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Restore Defaults
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div style={{ maxHeight: '350px', overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px', background: 'white' }}>
-                {savedDoctors.map((u, idx) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 15px', borderBottom: idx === savedDoctors.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                    <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#334155' }}>{u.name}</span>
-                    <button
-                      onClick={async () => {
-                        if (confirm(`Remove ${u.name}?`)) {
-                          await databaseService.deleteDoctor(u.name);
-                          await fetchAllData();
-                        }
-                      }}
-                      style={{ background: '#fee2e2', color: '#ef4444', border: 'none', width: '28px', height: '28px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <span style={{ fontSize: '1.2rem', lineHeight: 1 }}>×</span>
-                    </button>
-                  </div>
-                ))}
-
-                {savedDoctors.length === 0 && (
-                  <div style={{ padding: '30px', textAlign: 'center' }}>
-                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 10px 0' }}>No doctors listed.</p>
-                    <button
-                      onClick={async () => {
-                        if (confirm("This will remove all current names and replace them with the 5 default doctors. Continue?")) {
-                          // 1. Delete all existing from DB (by name)
-                          for (const u of users) {
-                            await databaseService.deleteDoctor(u.name);
-                          }
-                          // 2. Add the 5 correct ones
-                          const defaults = ["DR. UMA MAHESHWARAN", "DR. PRAGADEESH", "DR.G.GOPINATH", "DR.G.VIGNESH", "DR.SWAMINATHAN"];
-                          for (const name of defaults) {
-                            await databaseService.saveDoctor({ name });
-                          }
-                          await fetchAllData();
-                        }
-                      }}
-                      style={{ fontSize: '0.75rem', color: '#2563eb', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontWeight: 600 }}
-                    >
-                      Restore Defaults
-                    </button>
-                  </div>
-                )}
+              <div style={{ padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: '#f8fafc' }}>
+                <button onClick={() => setIsDoctorEditModalOpen(false)} style={{ margin: 0, padding: '8px 20px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Done</button>
               </div>
             </div>
-
-            <div style={{ padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: '#f8fafc' }}>
-              <button onClick={() => setIsDoctorEditModalOpen(false)} style={{ margin: 0, padding: '8px 20px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Done</button>
-            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* ── Doctor Account Edit Modal ── */}
-      {isDoctorAccountEditModalOpen && (
-        <div className="admin-modal-overlay">
-          <div className="registration-modal-content">
-            <div className="registration-modal-header">
-              <h2>Edit Doctor Account</h2>
-              <button className="registration-close-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)}>×</button>
-            </div>
-            <form onSubmit={handleEditDoctorAccount} className="registration-form">
-              <div className="form-grid">
-                <div className="form-field full-width">
-                  <label>Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDoctorAccount.name}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, name: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Mobile Number *</label>
-                  <input
-                    type="tel"
-                    required
-                    value={editingDoctorAccount.phone}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, phone: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Login Password *</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingDoctorAccount.password}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, password: e.target.value })}
-                  />
-                </div>
-                <div className="form-field full-width">
-                  <label>Qualification</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. MBBS, MD"
-                    value={editingDoctorAccount.qualification}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, qualification: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Consultant Role</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. General Physician"
-                    value={editingDoctorAccount.consultant}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, consultant: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Registry Number</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Reg No. 12345"
-                    value={editingDoctorAccount.reg_no}
-                    onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, reg_no: e.target.value })}
-                  />
-                </div>
+      {
+        isDoctorAccountEditModalOpen && (
+          <div className="admin-modal-overlay">
+            <div className="registration-modal-content">
+              <div className="registration-modal-header">
+                <h2>Edit Doctor Account</h2>
+                <button className="registration-close-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)}>×</button>
               </div>
+              <form onSubmit={handleEditDoctorAccount} className="registration-form">
+                <div className="form-grid">
+                  <div className="form-field full-width">
+                    <label>Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDoctorAccount.name}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Mobile Number *</label>
+                    <input
+                      type="tel"
+                      required
+                      value={editingDoctorAccount.phone}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Login Password *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingDoctorAccount.password}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, password: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field full-width">
+                    <label>Qualification</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. MBBS, MD"
+                      value={editingDoctorAccount.qualification}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, qualification: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Consultant Role</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. General Physician"
+                      value={editingDoctorAccount.consultant}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, consultant: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Registry Number</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Reg No. 12345"
+                      value={editingDoctorAccount.reg_no}
+                      onChange={(e) => setEditingDoctorAccount({ ...editingDoctorAccount, reg_no: e.target.value })}
+                    />
+                  </div>
+                </div>
 
-              <div className="registration-actions">
-                <button type="button" className="cancel-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)} disabled={isActionBusy}>Cancel</button>
-                <button type="submit" className="submit-btn" disabled={isActionBusy}>
-                  {isActionBusy ? 'Saving...' : '💾 Save Changes'}
-                </button>
-              </div>
-            </form>
+                <div className="registration-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setIsDoctorAccountEditModalOpen(false)} disabled={isActionBusy}>Cancel</button>
+                  <button type="submit" className="submit-btn" disabled={isActionBusy}>
+                    {isActionBusy ? 'Saving...' : '💾 Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* ── Pick Existing Patient Modal ── */}
-      {isPickPatientModalOpen && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999, backdropFilter: 'blur(4px)'
-        }}>
-          <div style={{ background: 'white', width: '90%', maxWidth: '600px', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #e2e8f0' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>Add Patient to Today's List</h3>
-              <button onClick={() => setIsPickPatientModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}>×</button>
-            </div>
-            <div style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-              <input
-                type="text"
-                placeholder="Search by name or MRN..."
-                value={pickPatientSearch}
-                onChange={(e) => setPickPatientSearch(e.target.value)}
-                autoFocus
-                style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.9rem', outline: 'none' }}
-              />
-            </div>
-            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-              {patients.filter(p => {
-                const searchLower = pickPatientSearch.toLowerCase();
-                return p.name?.toLowerCase().includes(searchLower) || p.mrn?.toString().includes(searchLower);
-              }).map((p, idx) => {
-                // Check if already in today's list
-                const isAlreadyAdded = prescriptions.some(rx => String(rx.mrn).trim() === String(p.mrn).trim() && rx.date === selectedDate);
-                return (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #f1f5f9', opacity: isAlreadyAdded ? 0.6 : 1 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, color: '#2563eb' }}>MRN: {p.mrn}</div>
-                      <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 600 }}>{p.name}</div>
+      {
+        isPickPatientModalOpen && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+            background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, backdropFilter: 'blur(4px)'
+          }}>
+            <div style={{ background: 'white', width: '90%', maxWidth: '600px', borderRadius: '12px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px 20px', borderBottom: '1px solid #e2e8f0' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>Add Patient to Today's List</h3>
+                <button onClick={() => setIsPickPatientModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: '#64748b', cursor: 'pointer' }}>×</button>
+              </div>
+              <div style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                <input
+                  type="text"
+                  placeholder="Search by name or MRN..."
+                  value={pickPatientSearch}
+                  onChange={(e) => setPickPatientSearch(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', padding: '10px 14px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.9rem', outline: 'none' }}
+                />
+              </div>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {(() => {
+                  const isNumericTerm = /^\d+$/.test(pickPatientSearch);
+                  return patients.filter(p => {
+                    const searchLower = pickPatientSearch.toLowerCase();
+                    return p.name?.toLowerCase().includes(searchLower) ||
+                      (isNumericTerm ? String(p.mrn).trim() === pickPatientSearch.trim() : String(p.mrn).toLowerCase().includes(searchLower)) ||
+                      (pickPatientSearch.length >= 5 && p.phone?.includes(pickPatientSearch));
+                  });
+                })().map((p, idx) => {
+                  const isAlreadyAdded = prescriptions.some(rx => String(rx.mrn).trim() === String(p.mrn).trim() && rx.date === selectedDate);
+                  return (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #f1f5f9', opacity: isAlreadyAdded ? 0.6 : 1 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#2563eb' }}>MRN: {p.mrn}</div>
+                        <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 600 }}>{p.name}</div>
+                      </div>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const btn = e.currentTarget;
+                          const originalText = btn.innerText;
+                          btn.innerText = 'adding...';
+                          btn.disabled = true;
+                          try {
+                            await handleAssignDoctor(p.mrn, p.name, '');
+                            setIsPickPatientModalOpen(false);
+                          } catch (err) {
+                            btn.innerText = originalText;
+                            btn.disabled = false;
+                          }
+                        }}
+                        style={{
+                          padding: '6px 15px',
+                          background: '#10b981',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {isAlreadyAdded ? 'Add Again' : 'Add to Today'}
+                      </button>
                     </div>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const btn = e.currentTarget;
-                        const originalText = btn.innerText;
-                        btn.innerText = 'adding...';
-                        btn.disabled = true;
-                        try {
-                          await handleAssignDoctor(p.mrn, p.name, '');
-                          setIsPickPatientModalOpen(false);
-                        } catch (err) {
-                          btn.innerText = originalText;
-                          btn.disabled = false;
-                        }
-                      }}
-                      style={{
-                        padding: '6px 15px',
-                        background: '#10b981',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {isAlreadyAdded ? 'Add Again' : 'Add to Today'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: '#f8fafc' }}>
-              <button onClick={() => setIsPickPatientModalOpen(false)} style={{ margin: 0, padding: '8px 20px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+                  );
+                })}
+              </div>
+              <div style={{ padding: '15px 20px', borderTop: '1px solid #e2e8f0', textAlign: 'right', background: '#f8fafc' }}>
+                <button onClick={() => setIsPickPatientModalOpen(false)} style={{ margin: 0, padding: '8px 20px', background: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* ── Patient Registration Modal ── */}
-      {isRegisterModalOpen && (
-        <div className="admin-modal-overlay">
-          <div className="registration-modal-content">
-            <div className="registration-modal-header">
-              <h2>Register New Patient</h2>
-              <button className="registration-close-btn" onClick={() => setIsRegisterModalOpen(false)}>×</button>
-            </div>
-            <form onSubmit={handleRegisterPatient} className="registration-form">
-              <div className="form-grid">
-                <div className="form-field full-width">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label>Patient ID / MRN *</label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextMRN = getNextAutomationMRN(patients);
-                        setNewPatient({ ...newPatient, mrn: nextMRN });
+      {
+        isRegisterModalOpen && (
+          <div className="admin-modal-overlay">
+            <div className="registration-modal-content">
+              <div className="registration-modal-header">
+                <h2>Register New Patient</h2>
+                <button className="registration-close-btn" onClick={() => setIsRegisterModalOpen(false)}>×</button>
+              </div>
+              <form onSubmit={handleRegisterPatient} className="registration-form">
+                <div className="form-grid">
+                  <div className="form-field full-width">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label>Patient ID / MRN *</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextMRN = getNextAutomationMRN(patients);
+                          setNewPatient({ ...newPatient, mrn: nextMRN });
+                        }}
+                        style={{ background: '#e0f2fe', border: 'none', borderRadius: 4, color: '#0369a1', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', cursor: 'pointer' }}
+                      >
+                        🤖 Auto-generate (123456789)
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Unique Patient ID or MRN (or type 'automation')..."
+                      value={newPatient.mrn}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val.toLowerCase() === 'automation') {
+                          const nextMRN = getNextAutomationMRN(patients);
+                          setNewPatient({ ...newPatient, mrn: nextMRN });
+                        } else {
+                          setNewPatient({ ...newPatient, mrn: val });
+                        }
                       }}
-                      style={{ background: '#e0f2fe', border: 'none', borderRadius: 4, color: '#0369a1', fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', cursor: 'pointer' }}
-                    >
-                      🤖 Auto-generate (123456789)
-                    </button>
+                    />
+                    {newPatient.mrn && patients.some(p => p.mrn.toString() === newPatient.mrn.toString()) && (
+                      <span style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                        ⚠️ This MRN is already registered to a patient.
+                      </span>
+                    )}
                   </div>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter Unique Patient ID or MRN (or type 'automation')..."
-                    value={newPatient.mrn}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val.toLowerCase() === 'automation') {
-                        const nextMRN = getNextAutomationMRN(patients);
-                        setNewPatient({ ...newPatient, mrn: nextMRN });
-                      } else {
-                        setNewPatient({ ...newPatient, mrn: val });
-                      }
-                    }}
-                  />
-                  {newPatient.mrn && patients.some(p => p.mrn.toString() === newPatient.mrn.toString()) && (
-                    <span style={{ color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
-                      ⚠️ This MRN is already registered to a patient.
-                    </span>
-                  )}
-                </div>
-                <div className="form-field full-width">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label>Registration Date</label>
-                    <button
-                      type="button"
-                      onClick={() => setNewPatient({ ...newPatient, date: new Date().toLocaleDateString('en-CA') })}
-                      style={{ background: '#ecfdf5', border: 'none', borderRadius: 4, color: '#059669', fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}
-                    >
-                      🚀 Today
-                    </button>
+                  <div className="form-field full-width">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label>Registration Date</label>
+                      <button
+                        type="button"
+                        onClick={() => setNewPatient({ ...newPatient, date: new Date().toLocaleDateString('en-CA') })}
+                        style={{ background: '#ecfdf5', border: 'none', borderRadius: 4, color: '#059669', fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}
+                      >
+                        🚀 Today
+                      </button>
+                    </div>
+                    <input
+                      type="date"
+                      value={newPatient.date}
+                      onChange={(e) => setNewPatient({ ...newPatient, date: e.target.value })}
+                    />
                   </div>
-                  <input
-                    type="date"
-                    value={newPatient.date}
-                    onChange={(e) => setNewPatient({ ...newPatient, date: e.target.value })}
-                  />
-                </div>
-                <div className="form-field full-width">
-                  <label>Patient Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter Patient's Full Name..."
-                    value={newPatient.patientName}
-                    onChange={(e) => setNewPatient({ ...newPatient, patientName: e.target.value })}
-                  />
-                  {newPatient.patientName && newPatient.patientName.length > 3 && patients.some(p => p.name?.toLowerCase().trim() === newPatient.patientName.toLowerCase().trim()) && (
-                    <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
-                      💡 A patient with this name is already registered.
-                    </span>
-                  )}
-                </div>
-                <div className="form-field">
-                  <label>Age</label>
-                  <input
-                    type="number"
-                    placeholder="Age..."
-                    value={newPatient.age}
-                    onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Gender / Sex</label>
-                  <select
-                    value={newPatient.gender}
-                    required
-                    onChange={(e) => {
-                      const newGender = e.target.value;
-                      const updatedName = applyGenderPrefix(newPatient.patientName, newGender);
-                      setNewPatient({ ...newPatient, gender: newGender, patientName: updatedName });
-                    }}
-                  >
-                    <option value="">Select Gender</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div className="form-field full-width">
-                  <label>Contact Phone Number</label>
-                  <input
-                    type="tel"
-                    placeholder="Enter Phone Number..."
-                    value={newPatient.phone}
-                    onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
-                  />
-                  {newPatient.phone && newPatient.phone.length >= 10 && patients.some(p => p.phone === newPatient.phone) && (
-                    <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
-                      💡 This phone number is already registered to another patient.
-                    </span>
-                  )}
+                  <div className="form-field full-width">
+                    <label>Patient Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Patient's Full Name..."
+                      value={newPatient.patientName}
+                      onChange={(e) => setNewPatient({ ...newPatient, patientName: e.target.value })}
+                    />
+                    {newPatient.patientName && newPatient.patientName.length > 3 && patients.some(p => p.name?.toLowerCase().trim() === newPatient.patientName.toLowerCase().trim()) && (
+                      <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                        💡 A patient with this name is already registered.
+                      </span>
+                    )}
+                  </div>
+                  <div className="form-field">
+                    <label>Age</label>
+                    <input
+                      type="number"
+                      placeholder="Age..."
+                      value={newPatient.age}
+                      onChange={(e) => setNewPatient({ ...newPatient, age: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Gender / Sex</label>
+                    <select
+                      value={newPatient.gender}
+                      required
+                      onChange={(e) => {
+                        const newGender = e.target.value;
+                        const updatedName = applyGenderPrefix(newPatient.patientName, newGender);
+                        setNewPatient({ ...newPatient, gender: newGender, patientName: updatedName });
+                      }}
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label>Contact Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="Enter Phone Number..."
+                      value={newPatient.phone}
+                      onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
+                    />
+                    {newPatient.phone && newPatient.phone.length >= 10 && patients.some(p => p.phone === newPatient.phone) && (
+                      <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 600, marginTop: '2px' }}>
+                        💡 This phone number is already registered to another patient.
+                      </span>
+                    )}
+                  </div>
+                  <div className="form-field">
+                    <label>Place / Area</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Tiruvarur, Tanjore"
+                      value={newPatient.place}
+                      onChange={(e) => setNewPatient({ ...newPatient, place: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-divider full-width">Vitals & Physical Metrics</div>
+
+                  <div className="form-field">
+                    <label>Weight (kg)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 70"
+                      value={newPatient.weight}
+                      onChange={(e) => setNewPatient({ ...newPatient, weight: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Blood Pressure (BP)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 120/80"
+                      value={newPatient.bp}
+                      onChange={(e) => setNewPatient({ ...newPatient, bp: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Pulse Rate (bpm)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 72"
+                      value={newPatient.pulse}
+                      onChange={(e) => setNewPatient({ ...newPatient, pulse: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Temperature (°F)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 98.6"
+                      value={newPatient.temp}
+                      onChange={(e) => setNewPatient({ ...newPatient, temp: e.target.value })}
+                    />
+                  </div>
                 </div>
 
-                <div className="form-divider full-width">Vitals & Physical Metrics</div>
-
-                <div className="form-field">
-                  <label>Weight (kg)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 70"
-                    value={newPatient.weight}
-                    onChange={(e) => setNewPatient({ ...newPatient, weight: e.target.value })}
-                  />
+                <div className="registration-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setIsRegisterModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="submit-btn" disabled={isSyncing}>
+                    {isSyncing ? 'Registering...' : '💾 Save Patient Record'}
+                  </button>
                 </div>
-                <div className="form-field">
-                  <label>Blood Pressure (BP)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 120/80"
-                    value={newPatient.bp}
-                    onChange={(e) => setNewPatient({ ...newPatient, bp: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Pulse Rate (bpm)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 72"
-                    value={newPatient.pulse}
-                    onChange={(e) => setNewPatient({ ...newPatient, pulse: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Temperature (°F)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 98.6"
-                    value={newPatient.temp}
-                    onChange={(e) => setNewPatient({ ...newPatient, temp: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="registration-actions">
-                <button type="button" className="cancel-btn" onClick={() => setIsRegisterModalOpen(false)}>Cancel</button>
-                <button type="submit" className="submit-btn" disabled={isSyncing}>
-                  {isSyncing ? 'Registering...' : '💾 Save Patient Record'}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       {/* ── Patient Edit Modal ── */}
-      {isEditModalOpen && (
-        <div className="admin-modal-overlay">
-          <div className="registration-modal-content">
-            <div className="registration-modal-header">
-              <h2>Edit Patient Record</h2>
-              <button className="registration-close-btn" onClick={() => setIsEditModalOpen(false)}>×</button>
-            </div>
-            <form onSubmit={handleEditPatient} className="registration-form">
-              <div className="form-grid">
-                <div className="form-field full-width">
-                  <label>Patient ID / MRN (Cannot be changed)</label>
-                  <input
-                    type="text"
-                    disabled
-                    style={{ background: '#e2e8f0', color: '#64748b', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
-                    value={editingPatient.mrn}
-                  />
-                </div>
-                <div className="form-field full-width">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label>Registration Date</label>
-                    <button
-                      type="button"
-                      onClick={() => setEditingPatient({ ...editingPatient, registration_date: new Date().toLocaleDateString('en-CA') })}
-                      style={{ background: '#ecfdf5', border: 'none', borderRadius: 4, color: '#059669', fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}
-                    >
-                      🚀 Today
-                    </button>
+      {
+        isEditModalOpen && (
+          <div className="admin-modal-overlay">
+            <div className="registration-modal-content">
+              <div className="registration-modal-header">
+                <h2>Edit Patient Record</h2>
+                <button className="registration-close-btn" onClick={() => setIsEditModalOpen(false)}>×</button>
+              </div>
+              <form onSubmit={handleEditPatient} className="registration-form">
+                <div className="form-grid">
+                  <div className="form-field full-width">
+                    <label>Patient ID / MRN (Cannot be changed)</label>
+                    <input
+                      type="text"
+                      disabled
+                      style={{ background: '#e2e8f0', color: '#64748b', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
+                      value={editingPatient.mrn}
+                    />
                   </div>
-                  <input
-                    type="date"
-                    value={editingPatient.registration_date}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, registration_date: e.target.value })}
-                  />
-                </div>
-                <div className="form-field full-width">
-                  <label>Patient Full Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter Patient's Full Name..."
-                    value={editingPatient.patientName}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, patientName: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Age</label>
-                  <input
-                    type="number"
-                    placeholder="Age..."
-                    value={editingPatient.age}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, age: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Gender / Sex</label>
-                  <select
-                    value={editingPatient.gender}
-                    required
-                    onChange={(e) => {
-                      const newGender = e.target.value;
-                      const updatedName = applyGenderPrefix(editingPatient.patientName, newGender);
-                      setEditingPatient({ ...editingPatient, gender: newGender, patientName: updatedName });
-                    }}
-                  >
-                    <option value="">Select Gender</option>
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-                <div className="form-field full-width">
-                  <label>Contact Phone Number</label>
-                  <input
-                    type="tel"
-                    placeholder="Mobile or Landline Number..."
-                    value={editingPatient.phone}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
-                  />
+                  <div className="form-field full-width">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <label>Registration Date</label>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPatient({ ...editingPatient, registration_date: new Date().toLocaleDateString('en-CA') })}
+                        style={{ background: '#ecfdf5', border: 'none', borderRadius: 4, color: '#059669', fontSize: '0.7rem', fontWeight: 700, padding: '2px 8px', cursor: 'pointer' }}
+                      >
+                        🚀 Today
+                      </button>
+                    </div>
+                    <input
+                      type="date"
+                      value={editingPatient.registration_date}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, registration_date: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field full-width">
+                    <label>Patient Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter Patient's Full Name..."
+                      value={editingPatient.patientName}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, patientName: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Age</label>
+                    <input
+                      type="number"
+                      placeholder="Age..."
+                      value={editingPatient.age}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, age: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Gender / Sex</label>
+                    <select
+                      value={editingPatient.gender}
+                      required
+                      onChange={(e) => {
+                        const newGender = e.target.value;
+                        const updatedName = applyGenderPrefix(editingPatient.patientName, newGender);
+                        setEditingPatient({ ...editingPatient, gender: newGender, patientName: updatedName });
+                      }}
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <label>Contact Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="Mobile or Landline Number..."
+                      value={editingPatient.phone}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Place / Area</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Tiruvarur"
+                      value={editingPatient.place}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, place: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="form-divider full-width">Vitals & Physical Metrics</div>
+
+                  <div className="form-field">
+                    <label>Weight (kg)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 70"
+                      value={editingPatient.weight}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, weight: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Blood Pressure (BP)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 120/80"
+                      value={editingPatient.bp}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, bp: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Pulse Rate (bpm)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 72"
+                      value={editingPatient.pulse}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, pulse: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Temperature (°F)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 98.6"
+                      value={editingPatient.temp}
+                      onChange={(e) => setEditingPatient({ ...editingPatient, temp: e.target.value })}
+                    />
+                  </div>
                 </div>
 
-                <div className="form-divider full-width">Vitals & Physical Metrics</div>
-
-                <div className="form-field">
-                  <label>Weight (kg)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 70"
-                    value={editingPatient.weight}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, weight: e.target.value })}
-                  />
+                <div className="registration-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                  <button type="submit" className="submit-btn" disabled={isSyncing}>
+                    {isSyncing ? 'Saving Changes...' : '💾 Save Changes'}
+                  </button>
                 </div>
-                <div className="form-field">
-                  <label>Blood Pressure (BP)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 120/80"
-                    value={editingPatient.bp}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, bp: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Pulse Rate (bpm)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 72"
-                    value={editingPatient.pulse}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, pulse: e.target.value })}
-                  />
-                </div>
-                <div className="form-field">
-                  <label>Temperature (°F)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 98.6"
-                    value={editingPatient.temp}
-                    onChange={(e) => setEditingPatient({ ...editingPatient, temp: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="registration-actions">
-                <button type="button" className="cancel-btn" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
-                <button type="submit" className="submit-btn" disabled={isSyncing}>
-                  {isSyncing ? 'Saving Changes...' : '💾 Save Changes'}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <style dangerouslySetInnerHTML={{
         __html: `

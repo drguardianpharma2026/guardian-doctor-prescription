@@ -64,29 +64,20 @@ function App() {
         const settings = await databaseService.getSettings();
         if (settings) setClinicSettings(settings);
 
-        const doctors = await databaseService.getSavedDoctors();
-        const users = await databaseService.getUsers();
+        const dbDoctors = await databaseService.getSavedDoctors();
+        const dbUsers = await databaseService.getUsers();
 
-        // Merge both doctors table + registered user accounts (auth table)
-        const mergedDoctors = [...(doctors || [])];
-        if (users && users.length > 0) {
-          users.forEach(user => {
-            if (!mergedDoctors.find(d => d.name === user.name)) {
-              mergedDoctors.push({
-                name: user.name,
-                qualifications: user.qualification || '',
-                role: user.consultant || '',
-                regNo: user.reg_no || user.regNo || ''
-              });
-            }
-          });
-        }
+        // We now prioritize doctors with accounts (dbUsers)
+        const activeDoctorAccounts = (dbUsers || []).map(u => ({
+          name: u.name,
+          qualifications: u.qualification || '',
+          role: u.consultant || '',
+          regNo: u.reg_no || u.regNo || ''
+        }));
 
-        // Final list for UI: Filter out specific placeholder or development names
-        const finalDoctors = mergedDoctors.filter(d =>
-          d.name &&
-          !d.name.toUpperCase().includes('MUHSIN') &&
-          !d.name.toUpperCase().includes('UMA MAHESHWARAN')
+        // Filter out specific placeholder names
+        const finalDoctors = activeDoctorAccounts.filter(d =>
+          d.name && !d.name.toUpperCase().includes('MUHSIN')
         );
 
         if (finalDoctors.length > 0) {
@@ -127,17 +118,40 @@ function App() {
 
         // Fetch OP patients for the currently selected date
         const queryDate = data.date || new Date().toLocaleDateString('en-CA');
-        const prescriptions = await databaseService.getPrescriptions(null, queryDate);
+        const [prescriptions, allPatients] = await Promise.all([
+          databaseService.getPrescriptions(null, queryDate),
+          databaseService.getAllPatients()
+        ]);
+
+        const mergedMap = new Map();
+
+        // 1. Add all patients registered today (Waiting List)
+        const patientsToday = allPatients.filter(p =>
+          p.date === queryDate || (p.registration_date && p.registration_date.startsWith(queryDate))
+        );
+        patientsToday.forEach(p => {
+          mergedMap.set(String(p.mrn).trim(), {
+            ...p,
+            name: p.name || 'Unknown Patient'
+          });
+        });
+
+        // 2. Wrap prescriptions (Active/Completed)
         if (prescriptions) {
-          // We need patient details for these prescriptions
-          const patientList = await Promise.all(
-            prescriptions.map(async (rx) => {
-              const p = await databaseService.getPatient(rx.mrn);
-              return { ...p, rx_id: rx.id, rx_date: rx.date };
-            })
-          );
-          setTodayOPPatients(patientList.filter(p => !!p.mrn));
+          prescriptions.forEach(rx => {
+            const mrnKey = String(rx.mrn).trim();
+            const existingPatient = mergedMap.get(mrnKey);
+            mergedMap.set(mrnKey, {
+              ...(existingPatient || {}),
+              ...rx,
+              rx_id: rx.id,
+              rx_date: rx.date,
+              name: existingPatient?.name || rx.patient_name || 'Unknown Patient'
+            });
+          });
         }
+
+        setTodayOPPatients(Array.from(mergedMap.values()));
       } catch (err) {
         console.error('Failed to fetch master data:', err);
       }
@@ -254,12 +268,24 @@ function App() {
     if (data.mrn) {
       setIsSyncing(true);
       try {
+        // Always save patient demographics
         await databaseService.savePatient(data);
-        const savedRx = await databaseService.savePrescription({ ...data, id: data.rxId });
 
-        // CRITICAL: Update the rxId in state so subsequent saves/prints update this record
-        if (savedRx && savedRx.id) {
-          setData(prev => ({ ...prev, rxId: savedRx.id }));
+        // Only save prescription if there is actual clinical content
+        const hasMedicines = (data.medicines || []).some(m => m.name && m.name.trim() !== '');
+        const hasClinicalContent = data.diagnosis?.trim() || data.complaints?.trim() || hasMedicines;
+
+        if (hasClinicalContent) {
+          const savedRx = await databaseService.savePrescription({ ...data, id: data.rxId });
+
+          // CRITICAL: Update the rxId in state so subsequent saves/prints update this record
+          if (savedRx && savedRx.id) {
+            setData(prev => ({ ...prev, rxId: savedRx.id }));
+          }
+        } else if (isManual) {
+          alert('Please fill in at least a diagnosis, complaints, or medicines before saving a prescription.');
+          setIsSyncing(false);
+          return;
         }
 
         // Live automation pulse

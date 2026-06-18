@@ -80,6 +80,10 @@ const AdminLogin = ({ onLogin }) => {
             </button>
           </form>
 
+          <button onClick={() => navigate('/login')} className="exit-btn" style={{ color: '#0d9488', fontWeight: 800 }}>
+            🩺 Go to Doctor Login
+          </button>
+
           <button onClick={() => navigate('/')} className="exit-btn">
             ← Back to Application
           </button>

@@ -547,7 +547,24 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
       <div className="form-grid-2col">
         <div>
           <Label>Doctor Name</Label>
-          <input type="text" value={data.doctorName} onChange={(e) => updateField('doctorName', e.target.value)} placeholder="Dr. Name" />
+          <input
+            type="text"
+            value={data.doctorName}
+            onChange={(e) => updateField('doctorName', e.target.value)}
+            onBlur={(e) => {
+              let val = e.target.value.trim();
+              if (val && !val.toUpperCase().startsWith('DR.')) {
+                if (val.toUpperCase().startsWith('DR ')) {
+                  val = 'DR. ' + val.substring(3);
+                } else {
+                  val = 'DR. ' + val;
+                }
+              }
+              // Optional: auto-convert to uppercase to match the style in screenshot
+              updateField('doctorName', val.toUpperCase());
+            }}
+            placeholder="Dr. Name"
+          />
         </div>
         <div>
           <Label>Qualifications</Label>
@@ -559,7 +576,18 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
           <Label>Registration Number (Reg No)</Label>
-          <input type="text" value={data.doctorRegNo || ''} onChange={(e) => updateField('doctorRegNo', e.target.value)} placeholder="Reg No - 93179" />
+          <input
+            type="text"
+            value={data.doctorRegNo || ''}
+            onChange={(e) => updateField('doctorRegNo', e.target.value)}
+            onBlur={(e) => {
+              let val = e.target.value.trim();
+              if (val && /^\d+$/.test(val)) {
+                updateField('doctorRegNo', `Reg No - ${val}`);
+              }
+            }}
+            placeholder="Reg No - 93179"
+          />
         </div>
       </div>
 
@@ -690,6 +718,10 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
         <div>
           <Label>Phone Number</Label>
           <input type="text" value={data.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Mobile Number" />
+        </div>
+        <div>
+          <Label>Place / Area</Label>
+          <input type="text" value={data.place || ''} onChange={(e) => updateField('place', e.target.value)} placeholder="e.g. Village" />
         </div>
       </div>
 

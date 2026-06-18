@@ -12,6 +12,7 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS lab_given TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS registration_date TEXT`;
+    await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS place TEXT`;
 
     if (req.method === 'GET') {
       const { mrn } = req.query;
@@ -46,14 +47,15 @@ export default async function handler(req, res) {
             lab_given = ${d.lab_given !== undefined ? d.lab_given : sql`lab_given`},
             lab_cash = ${d.lab_cash !== undefined ? d.lab_cash : sql`lab_cash`},
             registration_date = ${d.registration_date !== undefined ? d.registration_date : sql`registration_date`},
+            place = ${d.place !== undefined ? d.place : sql`place`},
             updated_at = NOW()
           WHERE mrn = ${d.mrn}
         `;
       } else {
         // New patient: insert with provided data or defaults
         await sql`
-          INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, lab_given, lab_cash, registration_date, updated_at)
-          VALUES (${d.mrn}, ${d.name || ''}, ${d.age || 0}, ${d.sex || ''}, ${d.phone || ''}, ${d.last_weight || ''}, ${d.last_bp || ''}, ${d.last_pulse || ''}, ${d.last_temp || ''}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.registration_date || ''}, NOW())
+          INSERT INTO mrn (mrn, name, age, sex, phone, last_weight, last_bp, last_pulse, last_temp, dr_fees, med_fees, lab_given, lab_cash, registration_date, place, updated_at)
+          VALUES (${d.mrn}, ${d.name || ''}, ${d.age || 0}, ${d.sex || ''}, ${d.phone || ''}, ${d.last_weight || ''}, ${d.last_bp || ''}, ${d.last_pulse || ''}, ${d.last_temp || ''}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.registration_date || ''}, ${d.place || ''}, NOW())
         `;
       }
       return res.status(200).json({ success: true });

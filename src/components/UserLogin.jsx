@@ -44,6 +44,17 @@ const UserLogin = ({ onLogin }) => {
       <div className="login-form-side">
         <div className="login-form-card">
           <div className="login-header">
+            <span style={{
+              background: '#f0fdfa',
+              color: '#0d9488',
+              padding: '4px 12px',
+              borderRadius: '20px',
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              display: 'inline-block',
+              marginBottom: '10px',
+              border: '1px solid #99f6e4'
+            }}>🩺 PROFESSIONAL DOCTOR PORTAL</span>
             <h2>Login</h2>
             <p>Welcome back! Please enter your details.</p>
           </div>

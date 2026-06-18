@@ -111,7 +111,7 @@ const PrescriptionPreview = ({ data }) => {
         </div>
 
         {/* Row 2 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 0.8fr', gap: '8pt', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8pt', whiteSpace: 'nowrap', marginBottom: '4pt' }}>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
             <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Name</span>
             <span style={{ margin: '0 4pt' }}>:</span>
@@ -127,6 +127,13 @@ const PrescriptionPreview = ({ data }) => {
             <span style={{ margin: '0 4pt' }}>:</span>
             <span style={{ fontWeight: 800 }}>{data.phone || '----------'}</span>
           </div>
+        </div>
+
+        {/* Row 3 - Place */}
+        <div style={{ marginBottom: '4pt' }}>
+          <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Place / Area</span>
+          <span style={{ margin: '0 4pt' }}>:</span>
+          <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{data.place || '------------------'}</span>
         </div>
 
         {/* Row 3: Vitals Summary */}
@@ -269,7 +276,14 @@ const PrescriptionPreview = ({ data }) => {
 
             {/* Doctor Model (Small Size) */}
             <div style={{ fontSize: '10.5pt', fontWeight: 800, marginBottom: '0.5pt' }}>
-              {data.doctorName ? `Dr. ${data.doctorName}` : 'Dr. _________________'}
+              {(() => {
+                const name = data.doctorName?.trim();
+                if (!name) return 'Dr. _________________';
+                // If it already starts with Dr or DR, just use it (ensure single prefix)
+                if (name.toUpperCase().startsWith('DR.')) return name;
+                if (name.toUpperCase().startsWith('DR ')) return `DR. ${name.substring(3)}`;
+                return `Dr. ${name}`;
+              })()}
             </div>
             <div style={{ fontSize: '8.5pt', fontWeight: 700, marginBottom: '1.5pt' }}>
               {data.doctorQualifications || 'Qualifications'}

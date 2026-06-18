@@ -109,7 +109,7 @@ textarea:focus {
 
 .form-grid-gender-phone {
   display: grid;
-  grid-template-columns: 1fr 2fr;
+  grid-template-columns: 1fr 1.5fr 1.5fr;
   gap: 1rem;
   margin-bottom: 2rem;
 }

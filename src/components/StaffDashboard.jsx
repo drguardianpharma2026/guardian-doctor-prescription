@@ -46,7 +46,6 @@ const StaffDashboard = () => {
     const [prescriptions, setPrescriptions] = useState([])
     const [allPrescriptions, setAllPrescriptions] = useState([])
     const [users, setUsers] = useState([])
-    const [savedDoctors, setSavedDoctors] = useState([])
 
     const [modalPatient, setModalPatient] = useState(null)
     const [modalPatientHistory, setModalPatientHistory] = useState([])
@@ -62,13 +61,13 @@ const StaffDashboard = () => {
     const [pickPatientSearch, setPickPatientSearch] = useState('')
 
     const INITIAL_NEW_PATIENT = {
-        mrn: '', patientName: '', age: '', gender: '', phone: '',
+        mrn: '', patientName: '', age: '', gender: '', phone: '', place: '',
         weight: '', bp: '', pulse: '', temp: '', date: new Date().toLocaleDateString('en-CA')
     };
 
     const [newPatient, setNewPatient] = useState(INITIAL_NEW_PATIENT)
     const [editingPatient, setEditingPatient] = useState({
-        mrn: '', patientName: '', age: '', gender: 'Male', phone: '',
+        mrn: '', patientName: '', age: '', gender: 'Male', phone: '', place: '',
         weight: '', bp: '', pulse: '', temp: '', registration_date: ''
     })
 
@@ -79,12 +78,11 @@ const StaffDashboard = () => {
     const refreshData = useCallback(async () => {
         setIsSyncing(true)
         try {
-            const [dbPatients, dbRx, dbAllRx, dbUsers, dbSavedDoctors] = await Promise.all([
+            const [dbPatients, dbRx, dbAllRx, dbUsers] = await Promise.all([
                 databaseService.getAllPatients(),
                 databaseService.getPrescriptions(null, selectedDate),
                 databaseService.getPrescriptions(null, null),
-                databaseService.getUsers(),
-                databaseService.getSavedDoctors()
+                databaseService.getUsers()
             ])
             if (dbPatients) setPatients(sortPatientsByMRN(dbPatients))
             if (dbRx) {
@@ -105,7 +103,6 @@ const StaffDashboard = () => {
             }
             if (dbAllRx) setAllPrescriptions(dbAllRx)
             if (dbUsers) setUsers(dbUsers)
-            if (dbSavedDoctors) setSavedDoctors(dbSavedDoctors)
         } catch (e) {
             console.error(e)
         } finally {
@@ -145,15 +142,23 @@ const StaffDashboard = () => {
 
     const handleAssignDoctor = async (mrn, pName, docName, rxId = null) => {
         setIsSyncing(true)
+        // Normalize doctor name to "DR. NAME" for consistency
+        const normalizedDocName = (docName || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+        let finalDocName = normalizedDocName ? `DR. ${normalizedDocName}` : '';
+
+        // Manual alias mapping
+        if (normalizedDocName === 'UMA MAHESHWARAN' || normalizedDocName === 'S. UMAMAHESWARAN') {
+            finalDocName = 'DR. S. UMAMAHESWARAN';
+        }
+
         try {
-            const doc = users.find(u => u.name === docName) ||
-                savedDoctors.find(d => d.name === docName) || {};
+            const doc = users.find(u => u.name?.trim().toUpperCase() === finalDocName.toUpperCase()) || {};
             await databaseService.savePrescription({
                 id: rxId,
                 mrn,
                 patientName: pName,
                 date: selectedDate,
-                doctorName: docName,
+                doctorName: finalDocName,
                 doctorRegNo: doc.regNo || doc.reg_no || ''
             })
             setIsPickPatientModalOpen(false)
@@ -162,7 +167,7 @@ const StaffDashboard = () => {
             await refreshData()
         } catch (e) {
             console.error(e)
-            alert('Failed: ' + e.message)
+            alert('Failed to assign doctor: ' + e.message)
         } finally {
             setIsSyncing(false)
         }
@@ -196,7 +201,6 @@ const StaffDashboard = () => {
                 last_weight: newPatient.weight, last_bp: newPatient.bp, last_pulse: newPatient.pulse, last_temp: newPatient.temp,
                 registration_date: regDate
             })
-            await databaseService.savePrescription({ mrn: newPatient.mrn, patientName: newPatient.patientName, date: selectedDate })
             setIsRegisterModalOpen(false)
             setNewPatient({ ...INITIAL_NEW_PATIENT, mrn: getNextAutomationMRN(patients) }) // Reset form after registration
             await refreshData()
@@ -217,42 +221,84 @@ const StaffDashboard = () => {
     }
 
     const allDoctorNames = useMemo(() => {
-        const uNames = users.filter(u => (u.role || '').toLowerCase().includes('doctor')).map(u => u.name);
-        const sdNames = savedDoctors.map(d => d.name);
-        const rxNames = allPrescriptions.map(rx => rx.doctor_name);
+        const uNames = users.map(u => u.name);
+        // Base consultants that should always be available
+        const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN"];
 
-        // Normalize names to "DR. NAME" format to merge variations
         const formatName = (n) => {
             let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-            return clean ? `DR. ${clean}` : '';
+            if (!clean) return '';
+            if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+            return `DR. ${clean}`;
         };
 
-        const uniqueNames = Array.from(new Set([...uNames, ...sdNames, ...rxNames].map(formatName)))
-            .filter(name => name && name !== "DR. UMA MAHESHWARAN" && name !== "DR. MUHSIN" && name !== "DR. ALL DOCTORS" && name !== "ALL DOCTORS");
+        const uniqueNames = Array.from(new Set([...base, ...uNames].map(formatName)))
+            .filter(name => name &&
+                !name.includes("MUHSIN") &&
+                name !== "DR. ALL DOCTORS" &&
+                name !== "ALL DOCTORS" &&
+                name !== "DR. UNASSIGNED");
         return uniqueNames.sort();
-    }, [users, savedDoctors, allPrescriptions]);
+    }, [users]);
 
     const todayOPListFiltered = useMemo(() => {
-        return prescriptions.filter(rx => {
-            const p = patients.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim())
-            const searchMatch = !searchTerm || (p?.name?.toLowerCase().includes(searchTerm.toLowerCase())) || (String(rx.mrn).includes(searchTerm))
+        const map = new Map();
+
+        // 1. First, include all prescriptions for the selected date
+        prescriptions.forEach(rx => {
+            const p = patients.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim()) || {};
+            map.set(String(rx.mrn).trim(), {
+                ...p,
+                ...rx,
+                name: p.name || rx.patient_name || "Unknown Patient",
+                age: p.age || rx.age || "",
+                sex: p.sex || p.gender || rx.sex || "",
+                phone: p.phone || rx.phone || "",
+                place: p.place || rx.place || "",
+                rxId: rx.id?.toString()
+            });
+        });
+
+        // 2. Also include patients registered today (even if no prescription yet)
+        patients.forEach(p => {
+            const regDate = p.registration_date || p.date || "";
+            if (regDate.startsWith(selectedDate)) {
+                const mrnKey = String(p.mrn).trim();
+                if (!map.has(mrnKey)) {
+                    map.set(mrnKey, {
+                        ...p,
+                        name: p.name || "Unknown Patient",
+                        age: p.age || "",
+                        sex: p.sex || p.gender || "",
+                        phone: p.phone || "",
+                        place: p.place || ""
+                    });
+                }
+            }
+        });
+
+        return Array.from(map.values()).filter(item => {
+            const patientName = item.name || "";
+            const isNumericTerm = /^\d+$/.test(searchTerm);
+            const searchMatch = !searchTerm ||
+                (patientName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (isNumericTerm ? String(item.mrn).trim() === searchTerm.trim() : String(item.mrn).includes(searchTerm));
 
             const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-            const currentDoc = normalize(rx.doctor_name)
-            const targetDoc = normalize(filterDoctor)
-            const doctorMatch = filterDoctor === 'ALL DOCTORS' || currentDoc === targetDoc
+            const currentDoc = normalize(item.doctor_name);
+            const targetDoc = normalize(filterDoctor);
+            const doctorMatch = filterDoctor === 'ALL DOCTORS' || currentDoc === targetDoc;
 
-            return searchMatch && doctorMatch
-        }).map(rx => {
-            const p = patients.find(pat => String(pat.mrn).trim() === String(rx.mrn).trim())
-            return { ...p, ...rx, rxId: rx.id?.toString() }
-        })
-    }, [prescriptions, patients, searchTerm, filterDoctor])
+            return searchMatch && doctorMatch;
+        });
+    }, [prescriptions, patients, searchTerm, filterDoctor, selectedDate]);
 
     const patientRecordsFiltered = useMemo(() => {
+        const isNumericTerm = /^\d+$/.test(searchTerm);
         return patients.filter(p =>
             p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.mrn?.toString().includes(searchTerm)
+            (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
+            (searchTerm.length >= 5 && p.phone?.includes(searchTerm))
         )
     }, [patients, searchTerm])
 
@@ -271,6 +317,9 @@ const StaffDashboard = () => {
                 <nav>
                     <button className={activeTab === 'todayop' ? 'active' : ''} onClick={() => setActiveTab('todayop')}>🩺 Today's OP</button>
                     <button className={activeTab === 'patients' ? 'active' : ''} onClick={() => setActiveTab('patients')}>🏥 Patient Records</button>
+                    <button onClick={() => navigate('/login')} style={{ marginTop: '20px', background: '#f0fdfa', color: '#0d9488', border: '1px solid #99f6e4', width: '100%', padding: '10px', borderRadius: '8px', fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>🩺</span> Doctor Portal
+                    </button>
                 </nav>
                 <div className="sidebar-bottom">
                     <button onClick={() => navigate('/')} className="home-btn" style={{ width: '100%', padding: 10, background: '#475569', color: 'white', borderRadius: 6, cursor: 'pointer', border: 'none' }}>Website Home</button>
@@ -358,6 +407,7 @@ const StaffDashboard = () => {
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>AGE</th>
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>SEX</th>
                                         <th style={{ textAlign: 'left', padding: '6px 12px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>PHONE</th>
+                                        <th style={{ textAlign: 'left', padding: '6px 12px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>PLACE</th>
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>ATTENDING DOCTOR</th>
 
                                         <th style={{ width: 60, textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>VISITS</th>
@@ -381,14 +431,29 @@ const StaffDashboard = () => {
                                                 <td style={{ textAlign: 'center', color: '#64748b', padding: '6px 8px', fontSize: '0.75rem' }}>{p.age}</td>
                                                 <td style={{ textAlign: 'center', color: '#64748b', padding: '6px 8px', fontSize: '0.75rem' }}>{p.sex}</td>
                                                 <td style={{ color: '#64748b', fontSize: '0.75rem', padding: '6px 12px' }}>{p.phone}</td>
-                                                <td style={{ textAlign: 'center', padding: '6px 8px' }}>
-                                                    <div
-                                                        onClick={() => { setAssignTarget(p); setIsAssignModalOpen(true); }}
-                                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f0fdf4', color: '#166534', padding: '3px 10px', borderRadius: 4, border: '1px solid #bbf7d0', fontWeight: 800, fontSize: '0.65rem', cursor: 'pointer' }}
-                                                    >
-                                                        {p.doctor_name || 'NOT ASSIGNED'}
-                                                        <span style={{ color: '#f97316', fontSize: '0.8rem' }}>✎</span>
-                                                    </div>
+                                                <td style={{ color: '#64748b', fontSize: '0.75rem', padding: '6px 12px', fontWeight: 600 }}>{p.place || '—'}</td>
+                                                <td style={{ textAlign: 'center', padding: '6px 8px', minWidth: '150px' }}>
+                                                    {(p.doctor_name && p.doctor_name !== 'Unassigned') ? (
+                                                        <div
+                                                            onClick={() => { setAssignTarget(p); setIsAssignModalOpen(true); }}
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f0fdf4', color: '#166534', padding: '3px 10px', borderRadius: 4, border: '1px solid #bbf7d0', fontWeight: 800, fontSize: '0.65rem', cursor: 'pointer' }}
+                                                        >
+                                                            {p.doctor_name}
+                                                            <span style={{ color: '#f97316', fontSize: '0.8rem' }}>✎</span>
+                                                        </div>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center' }}>
+                                                            {allDoctorNames.map((name, bIdx) => (
+                                                                <button
+                                                                    key={bIdx}
+                                                                    onClick={() => handleAssignDoctor(p.mrn, p.name, name, p.rxId)}
+                                                                    style={{ padding: '2px 8px', borderRadius: 15, fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer', background: 'white', color: '#475569', border: '1px solid #cbd5e1', whiteSpace: 'nowrap' }}
+                                                                >
+                                                                    {name}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 <td style={{ textAlign: 'center', padding: '6px 8px' }}>
@@ -436,6 +501,7 @@ const StaffDashboard = () => {
                                         <th>Age</th>
                                         <th>Sex</th>
                                         <th>Phone</th>
+                                        <th>Place</th>
                                         <th>Date</th>
                                         <th style={{ textAlign: 'center' }}>Weight</th>
                                         <th style={{ textAlign: 'center' }}>BP</th>
@@ -453,6 +519,7 @@ const StaffDashboard = () => {
                                             <td>{p.age}</td>
                                             <td>{p.sex}</td>
                                             <td>{p.phone}</td>
+                                            <td style={{ fontWeight: 600, color: '#64748b' }}>{p.place || '—'}</td>
                                             <td style={{ fontSize: '0.75rem', color: '#64748b' }}>{p.registration_date ? p.registration_date.replace(' ', '\n') : '---'}</td>
                                             <td style={{ textAlign: 'center' }}>{p.last_weight}</td>
                                             <td style={{ textAlign: 'center' }}>{p.last_bp}</td>
@@ -563,13 +630,22 @@ const StaffDashboard = () => {
                                         <option value="Other">Other</option>
                                     </select>
                                 </div>
-                                <div className="form-field full-width">
+                                <div className="form-field">
                                     <label>Contact Phone Number</label>
                                     <input
                                         type="tel"
                                         placeholder="Enter Phone Number..."
                                         value={newPatient.phone}
                                         onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-field">
+                                    <label>Place / Area</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Village or Town"
+                                        value={newPatient.place || ''}
+                                        onChange={(e) => setNewPatient({ ...newPatient, place: e.target.value })}
                                     />
                                 </div>
 
@@ -652,7 +728,12 @@ const StaffDashboard = () => {
                                 />
                             </div>
                             <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
-                                {patients.filter(p => !pickPatientSearch || p.name.toLowerCase().includes(pickPatientSearch.toLowerCase()) || p.mrn.includes(pickPatientSearch)).map(p => (
+                                {(() => {
+                                    const isNumericTerm = /^\d+$/.test(pickPatientSearch);
+                                    return patients.filter(p => !pickPatientSearch || p.name.toLowerCase().includes(pickPatientSearch.toLowerCase()) ||
+                                        (isNumericTerm ? String(p.mrn).trim() === pickPatientSearch.trim() : String(p.mrn).includes(pickPatientSearch)) ||
+                                        (pickPatientSearch.length >= 5 && p.phone?.includes(pickPatientSearch)));
+                                })().map(p => (
                                     <div key={p.mrn} style={{ padding: '12px 15px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
                                         <div>
                                             <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.9rem' }}>{p.name}</div>
@@ -705,9 +786,13 @@ const StaffDashboard = () => {
                                         <option>Other</option>
                                     </select>
                                 </div>
-                                <div className="form-field full-width">
+                                <div className="form-field">
                                     <label>Phone</label>
                                     <input value={editingPatient.phone} onChange={e => setEditingPatient({ ...editingPatient, phone: e.target.value })} />
+                                </div>
+                                <div className="form-field">
+                                    <label>Place / Area</label>
+                                    <input value={editingPatient.place || ''} onChange={e => setEditingPatient({ ...editingPatient, place: e.target.value })} />
                                 </div>
 
                                 <div className="form-divider">Vitals & Physical Metrics</div>
