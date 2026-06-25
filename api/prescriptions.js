@@ -14,7 +14,32 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS visit_no TEXT`;
 
     if (req.method === 'GET') {
-      const { mrn, date, id } = req.query;
+      const { mrn, date, id, forceCleanup } = req.query;
+
+      // --- 2-Month Data Maintenance (Auto-Reset) ---
+      // This checks for prescriptions older than 60 days.
+      // It "resets" details (by deleting them) but preserves the "visits number" by moving the count to historic_visits.
+      const shouldCleanup = forceCleanup === 'true' || (Math.random() < 0.05); // Run occasionally on GET requests or when forced
+      if (shouldCleanup) {
+        try {
+          // 1. Move count of old prescriptions to historic_visits column in mrn table
+          await sql`
+            UPDATE mrn 
+            SET historic_visits = COALESCE(historic_visits, 0) + sub.old_count
+            FROM (
+              SELECT mrn, COUNT(*) as old_count 
+              FROM prescriptions 
+              WHERE created_at < NOW() - INTERVAL '2 months'
+              GROUP BY mrn
+            ) AS sub
+            WHERE mrn.mrn = sub.mrn
+          `;
+          // 2. Delete the old prescription details
+          await sql`DELETE FROM prescriptions WHERE created_at < NOW() - INTERVAL '2 months'`;
+        } catch (maintenanceErr) {
+          console.error('Data maintenance error:', maintenanceErr);
+        }
+      }
       if (id) {
         const result = await sql`SELECT * FROM prescriptions WHERE id = ${id}`;
         return res.status(200).json(result);

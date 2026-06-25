@@ -100,6 +100,7 @@ const AdminDashboard = ({ onLogout }) => {
     reg_no: ''
   })
   const [isActionBusy, setIsActionBusy] = useState(false)
+  const [monthlyLabProfits, setMonthlyLabProfits] = useState({}) // { [month-doctorName]: value }
 
   // --- Granular Fetchers for Better Performance ---
   const fetchMedicines = async () => {
@@ -1626,7 +1627,7 @@ const AdminDashboard = ({ onLogout }) => {
                   </thead>
                   <tbody>
                     {filteredPatients.map((p, idx) => {
-                      const visitsCount = rxCounts[String(p.mrn).trim()] || 0;
+                      const visitsCount = (rxCounts[String(p.mrn).trim()] || 0) + (parseInt(p.historic_visits) || 0);
                       return (
                         <React.Fragment key={p.mrn}>
                           <tr style={{ height: '28px' }}>
@@ -1776,17 +1777,31 @@ const AdminDashboard = ({ onLogout }) => {
               grandTotalLab += labVal;
             });
 
+            let totalLabProfit = 0;
             Object.keys(docGroups).sort().forEach(dName => {
+              // Filter out utility names that aren't actual doctors
+              if (dName.includes('ALL DOCTORS') || dName.includes('UNASSIGNED') || dName === 'Unassigned') return;
+
               const g = docGroups[dName];
+              const labProfitValue = parseFloat(monthlyLabProfits[`${selectedMonth}-${dName}`]) || 0;
+              totalLabProfit += labProfitValue;
+
               monthlyData.push({
                 doctorName: dName,
                 count: g.count,
                 drFees: g.dr,
                 medFees: g.med,
                 labCash: g.lab,
-                total: g.dr + g.med + g.lab
+                labProfit: labProfitValue,
+                total: g.dr + g.med + g.lab + labProfitValue
               });
             });
+
+            // Recalculate grand totals based on filtered results for UI consistency
+            grandTotalDr = monthlyData.reduce((s, d) => s + d.drFees, 0);
+            grandTotalMed = monthlyData.reduce((s, d) => s + d.medFees, 0);
+            grandTotalLab = monthlyData.reduce((s, d) => s + d.labCash, 0);
+            const grandTotalLabProfit = totalLabProfit;
 
             return (
               <div className="grid-container">
@@ -1816,6 +1831,7 @@ const AdminDashboard = ({ onLogout }) => {
                                   <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
                                   <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
                                   <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
+                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Profit</th>
                                   <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
                                 </tr>
                               </thead>
@@ -1827,6 +1843,7 @@ const AdminDashboard = ({ onLogout }) => {
                                     <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                     <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
                                     <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                     <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                   </tr>
                                 `).join('')}
@@ -1838,7 +1855,8 @@ const AdminDashboard = ({ onLogout }) => {
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalLabProfit.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
                                 </tr>
                               </tfoot>
                             </table>
@@ -1913,6 +1931,7 @@ const AdminDashboard = ({ onLogout }) => {
                                       <th style="text-align: center;">Dr Fees</th>
                                       <th style="text-align: center;">Medicine</th>
                                       <th style="text-align: center;">Lab Cash</th>
+                                      <th style="text-align: center;">Lab Profit</th>
                                       <th style="text-align: center;">Total</th>
                                     </tr>
                                   </thead>
@@ -1924,6 +1943,7 @@ const AdminDashboard = ({ onLogout }) => {
                                         <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                         <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
                                         <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                        <td style="text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                         <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                       </tr>
                                     `).join('')}
@@ -1935,7 +1955,8 @@ const AdminDashboard = ({ onLogout }) => {
                                       <td style="text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
-                                      <td style="text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${grandTotalLabProfit.toLocaleString()}</td>
+                                      <td style="text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
                                     </tr>
                                   </tfoot>
                                 </table>
@@ -1969,6 +1990,7 @@ const AdminDashboard = ({ onLogout }) => {
                         <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
+                        <th style={{ textAlign: 'center', padding: '15px', color: '#0891b2' }}>Lab Profit (₹)</th>
                         <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
                       </tr>
                     </thead>
@@ -1984,6 +2006,28 @@ const AdminDashboard = ({ onLogout }) => {
                           <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
                           <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
                           <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
+                          <td style={{ textAlign: 'center', padding: '15px' }}>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={monthlyLabProfits[`${selectedMonth}-${d.doctorName}`] || ''}
+                              onChange={(e) => setMonthlyLabProfits({
+                                ...monthlyLabProfits,
+                                [`${selectedMonth}-${d.doctorName}`]: e.target.value
+                              })}
+                              style={{
+                                width: '100px',
+                                padding: '6px',
+                                borderRadius: '4px',
+                                border: '1px solid #cbd5e1',
+                                textAlign: 'center',
+                                fontSize: '0.85rem',
+                                fontWeight: 700,
+                                color: '#0891b2',
+                                outline: 'none'
+                              }}
+                            />
+                          </td>
                           <td style={{ textAlign: 'center', padding: '15px', color: '#be123c', fontWeight: 900 }}>{d.total ? `₹${d.total.toLocaleString()}` : '-'}</td>
                         </tr>
                       ))}
@@ -1995,7 +2039,8 @@ const AdminDashboard = ({ onLogout }) => {
                         <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{grandTotalDr.toLocaleString()}</td>
                         <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{grandTotalMed.toLocaleString()}</td>
                         <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{grandTotalLab.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab).toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#22d3ee' }}>₹{grandTotalLabProfit.toLocaleString()}</td>
+                        <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -2121,6 +2166,34 @@ const AdminDashboard = ({ onLogout }) => {
                           <span>Patient ID: {previewData.mrn}</span>
                         </div>
                         <div className="toolbar-actions">
+                          <button className="print-btn" style={{ background: '#10b981', borderColor: '#10b981' }} onClick={async () => {
+                            const paperEl = document.getElementById('prescription-paper');
+                            if (!paperEl) { alert('Prescription preview element not found.'); return; }
+                            const filename = `Prescription_${previewData.mrn}_${previewData.date || 'draft'}.pdf`;
+                            const opt = {
+                              margin: 8,
+                              filename,
+                              image: { type: 'jpeg', quality: 0.98 },
+                              html2canvas: { scale: 2, useCORS: true },
+                              jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                            };
+                            try {
+                              const worker = window.html2pdf().set(opt).from(paperEl);
+                              const pdfBlob = await worker.output('blob');
+                              const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+                              if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                                await navigator.share({ files: [pdfFile], title: `Prescription - ${previewData.patientName}`, text: `Prescription for ${previewData.patientName} (MRN: ${previewData.mrn})` });
+                              } else {
+                                const url = URL.createObjectURL(pdfBlob);
+                                const a = document.createElement('a');
+                                a.href = url; a.download = filename; a.click();
+                                URL.revokeObjectURL(url);
+                              }
+                            } catch (err) {
+                              console.error('Share failed:', err);
+                              if (err.name !== 'AbortError') alert('Could not share. Try the Print button instead.');
+                            }
+                          }}>📤 Share Prescription</button>
                           <button className="print-btn" onClick={() => {
                             const paperEl = document.getElementById('prescription-paper');
                             if (!paperEl) { alert('Prescription preview element not found.'); return; }

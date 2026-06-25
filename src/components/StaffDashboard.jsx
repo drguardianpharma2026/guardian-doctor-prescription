@@ -460,7 +460,7 @@ const StaffDashboard = () => {
                                                     {(() => {
                                                         const pRx = allPrescriptions.filter(rx => String(rx.mrn).trim() === String(p.mrn).trim());
                                                         const dates = new Set(pRx.map(rx => rx.date).filter(Boolean));
-                                                        const vCount = dates.size;
+                                                        const vCount = dates.size + (parseInt(p.historic_visits) || 0);
                                                         const vColor = vCount === 1 ? '#15803d' : vCount === 2 ? '#1d4ed8' : '#b45309';
                                                         const vBg = vCount === 1 ? '#f0fdf4' : vCount === 2 ? '#eff6ff' : '#fef3c7';
                                                         return (

@@ -13,6 +13,7 @@ export default async function handler(req, res) {
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS registration_date TEXT`;
     await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS place TEXT`;
+    await sql`ALTER TABLE mrn ADD COLUMN IF NOT EXISTS historic_visits INT DEFAULT 0`;
 
     if (req.method === 'GET') {
       const { mrn } = req.query;
