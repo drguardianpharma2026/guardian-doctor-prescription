@@ -6,10 +6,6 @@ export default async function handler(req, res) {
     try {
         const sql = getDb();
 
-        // Auto-migrate columns if missing
-        await sql`ALTER TABLE fees_history ADD COLUMN IF NOT EXISTS lab_given TEXT`;
-        await sql`ALTER TABLE fees_history ADD COLUMN IF NOT EXISTS lab_cash TEXT`;
-
         if (req.method === 'GET') {
             const { mrn, date } = req.query;
             if (mrn && date) {

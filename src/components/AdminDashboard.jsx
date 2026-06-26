@@ -254,26 +254,19 @@ const AdminDashboard = ({ onLogout }) => {
     setIsSyncing(true);
     const tasks = [];
 
-    // Always fetch settings once if not loaded
+    // Always fetch settings if not yet loaded
     if (!clinicSettings.name || isFullRefresh) tasks.push(fetchClinicSettings());
 
-    if (isFullRefresh) {
-      // Full refresh always loads ALL data regardless of active tab
-      tasks.push(fetchMedicines(), fetchUsers(), fetchPatients(), fetchTodayOpData(), fetchAllPrescriptions());
-    } else if (activeTab === 'todayop' || activeTab === 'fees') {
-      tasks.push(fetchTodayOpData());
-      tasks.push(fetchUsers());
-      tasks.push(fetchPatients()); // Needed for patient names in Today OP
+    if (activeTab === 'todayop' || activeTab === 'fees') {
+      tasks.push(fetchTodayOpData(), fetchUsers(), fetchPatients());
     } else if (activeTab === 'medicines') {
       tasks.push(fetchMedicines());
     } else if (activeTab === 'patients') {
-      tasks.push(fetchPatients());
-      tasks.push(fetchAllPrescriptions()); // Needed for visit counts
+      tasks.push(fetchPatients(), fetchAllPrescriptions());
     } else if (activeTab === 'users') {
       tasks.push(fetchUsers());
     } else if (activeTab === 'monthly') {
-      tasks.push(fetchAllPrescriptions());
-      tasks.push(fetchLabProfits());
+      tasks.push(fetchAllPrescriptions(), fetchLabProfits());
     }
 
     await Promise.all(tasks);
@@ -283,10 +276,8 @@ const AdminDashboard = ({ onLogout }) => {
   // Re-fetch lab profits whenever the selected month changes AND auto-provision missing entries
   useEffect(() => {
     if (activeTab === 'monthly') {
-      // First fetch existing profits, then auto-provision missing doctor entries
       const syncProfitsForMonth = async () => {
         await fetchLabProfits(selectedMonth);
-        // Derive doctor names from all prescriptions for the selected month
         const monthRxForProvision = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
         const formatN = (n) => {
           let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
@@ -308,10 +299,10 @@ const AdminDashboard = ({ onLogout }) => {
 
   const fetchAllData = () => refreshActiveTabData(true);
 
-  // Initial load
-  useEffect(() => { refreshActiveTabData(true); }, [refreshActiveTabData]);
+  // Initial load — lazy: only load what the active tab needs
+  useEffect(() => { refreshActiveTabData(); }, [refreshActiveTabData]);
 
-  // Optimized visibility and sync handlers (only refresh what's active)
+  // Re-fetch on tab visibility restore
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') refreshActiveTabData();
@@ -328,9 +319,12 @@ const AdminDashboard = ({ onLogout }) => {
     return () => channel.close();
   }, [refreshActiveTabData]);
 
+  // Auto-poll todayop every 45s, but only when tab is visible
   useEffect(() => {
     if (activeTab !== 'todayop') return;
-    const interval = setInterval(() => refreshActiveTabData(), 30000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshActiveTabData();
+    }, 45000);
     return () => clearInterval(interval);
   }, [activeTab, refreshActiveTabData]);
 

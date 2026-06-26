@@ -7,18 +7,6 @@ export default async function handler(req, res) {
     try {
         const sql = getDb();
 
-        // Ensure the table exists
-        await sql`
-            CREATE TABLE IF NOT EXISTS lab_profits (
-                id SERIAL PRIMARY KEY,
-                month_key TEXT NOT NULL,
-                doctor_name TEXT NOT NULL,
-                profit_amount NUMERIC DEFAULT 0,
-                updated_at TIMESTAMPTZ DEFAULT now(),
-                UNIQUE(month_key, doctor_name)
-            )
-        `;
-
         if (req.method === 'GET') {
             const { month_key } = req.query;
             let result;
