@@ -13,6 +13,7 @@ import settingsHandler from './api/settings.js';
 import doctorsHandler from './api/doctors.js';
 import migrateHandler from './api/migrate.js';
 import feesHandler from './api/fees.js';
+import labProfitsHandler from './api/lab_profits.js';
 
 
 const app = express();
@@ -33,6 +34,7 @@ app.all('/api/settings', (req, res) => settingsHandler(req, res));
 app.all('/api/doctors', (req, res) => doctorsHandler(req, res));
 app.all('/api/migrate', (req, res) => migrateHandler(req, res));
 app.all('/api/fees', (req, res) => feesHandler(req, res));
+app.all('/api/lab_profits', (req, res) => labProfitsHandler(req, res));
 
 
 const PORT = 3000;

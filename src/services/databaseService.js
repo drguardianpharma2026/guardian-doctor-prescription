@@ -237,4 +237,19 @@ export const databaseService = {
   async deleteDoctor(name) {
     return api(`/api/doctors?name=${encodeURIComponent(name)}`, 'DELETE');
   },
+
+  // ── Lab Profits ──
+  async getLabProfits(monthKey) {
+    let url = '/api/lab_profits';
+    if (monthKey) url += `?month_key=${encodeURIComponent(monthKey)}`;
+    return api(url);
+  },
+
+  async saveLabProfit(monthKey, doctorName, profitAmount) {
+    return api('/api/lab_profits', 'POST', {
+      month_key: monthKey,
+      doctor_name: doctorName,
+      profit_amount: profitAmount
+    });
+  },
 };

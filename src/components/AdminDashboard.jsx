@@ -101,8 +101,66 @@ const AdminDashboard = ({ onLogout }) => {
   })
   const [isActionBusy, setIsActionBusy] = useState(false)
   const [monthlyLabProfits, setMonthlyLabProfits] = useState({}) // { [month-doctorName]: value }
+  const [labProfitSaveStatus, setLabProfitSaveStatus] = useState({}) // { [key]: 'saving'|'saved'|'error' }
+  const [labProfitToast, setLabProfitToast] = useState(null) // { message, type } for save confirmation
 
   // --- Granular Fetchers for Better Performance ---
+  const fetchLabProfits = async (month = selectedMonth) => {
+    try {
+      const profits = await databaseService.getLabProfits(month);
+      if (profits && profits.length > 0) {
+        const profitMap = {};
+        // DB stores month_key as the full composite key e.g. "2026-06-DR. G.VIGNESH"
+        profits.forEach(p => {
+          profitMap[p.month_key] = isNaN(parseFloat(p.profit_amount)) ? 0 : parseFloat(p.profit_amount);
+        });
+        setMonthlyLabProfits(prev => ({ ...prev, ...profitMap }));
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  // Auto-provision lab profit records for a given month + doctor list so they persist in DB
+  const autoProvisionLabProfits = async (month, doctorNames) => {
+    if (!month || !doctorNames || doctorNames.length === 0) return;
+    try {
+      const existing = await databaseService.getLabProfits(month);
+      const existingKeys = new Set((existing || []).map(p => p.month_key));
+      const missing = doctorNames.filter(dName => {
+        const key = `${month}-${dName}`;
+        return !existingKeys.has(key);
+      });
+      if (missing.length > 0) {
+        // Create DB entries with 0 for missing doctors
+        await Promise.all(missing.map(dName =>
+          databaseService.saveLabProfit(`${month}-${dName}`, dName, 0)
+        ));
+        // Re-fetch to get the newly created entries into state
+        await fetchLabProfits(month);
+      }
+    } catch (e) { console.error('autoProvisionLabProfits error:', e); }
+  };
+
+  const handleSaveLabProfit = async (monthKey, doctorName, value) => {
+    const numVal = isNaN(parseFloat(value)) ? 0 : parseFloat(value);
+    setLabProfitSaveStatus(prev => ({ ...prev, [monthKey]: 'saving' }));
+    try {
+      await databaseService.saveLabProfit(monthKey, doctorName, numVal);
+      // Sync state with the exact numeric value saved
+      setMonthlyLabProfits(prev => ({ ...prev, [monthKey]: numVal }));
+      setLabProfitSaveStatus(prev => ({ ...prev, [monthKey]: 'saved' }));
+      // Show global toast confirmation
+      setLabProfitToast({ message: `✅ Lab Profit for ${doctorName} saved: ₹${numVal.toLocaleString()}`, type: 'success' });
+      setTimeout(() => setLabProfitToast(null), 3500);
+      setTimeout(() => setLabProfitSaveStatus(prev => ({ ...prev, [monthKey]: null })), 2500);
+    } catch (err) {
+      console.error('Failed to save lab profit:', err);
+      setLabProfitSaveStatus(prev => ({ ...prev, [monthKey]: 'error' }));
+      setLabProfitToast({ message: `❌ Save failed for ${doctorName}: ${err.message}`, type: 'error' });
+      setTimeout(() => setLabProfitToast(null), 4000);
+      setTimeout(() => setLabProfitSaveStatus(prev => ({ ...prev, [monthKey]: null })), 3000);
+    }
+  };
+
   const fetchMedicines = async () => {
     try {
       const dbMeds = await databaseService.getMedicines();
@@ -215,11 +273,38 @@ const AdminDashboard = ({ onLogout }) => {
       tasks.push(fetchUsers());
     } else if (activeTab === 'monthly') {
       tasks.push(fetchAllPrescriptions());
+      tasks.push(fetchLabProfits());
     }
 
     await Promise.all(tasks);
     setIsSyncing(false);
-  }, [activeTab, selectedDate, clinicSettings.name]);
+  }, [activeTab, selectedDate, selectedMonth, clinicSettings.name]);
+
+  // Re-fetch lab profits whenever the selected month changes AND auto-provision missing entries
+  useEffect(() => {
+    if (activeTab === 'monthly') {
+      // First fetch existing profits, then auto-provision missing doctor entries
+      const syncProfitsForMonth = async () => {
+        await fetchLabProfits(selectedMonth);
+        // Derive doctor names from all prescriptions for the selected month
+        const monthRxForProvision = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
+        const formatN = (n) => {
+          let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+          if (!clean) return null;
+          if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+          return `DR. ${clean}`;
+        };
+        const uniqueDoctors = [...new Set(
+          monthRxForProvision.map(rx => formatN(rx.doctor_name)).filter(Boolean)
+        )];
+        if (uniqueDoctors.length > 0) {
+          await autoProvisionLabProfits(selectedMonth, uniqueDoctors);
+        }
+      };
+      syncProfitsForMonth();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMonth, activeTab]);
 
   const fetchAllData = () => refreshActiveTabData(true);
 
@@ -1805,6 +1890,22 @@ const AdminDashboard = ({ onLogout }) => {
 
             return (
               <div className="grid-container">
+                {/* Lab Profit Save Toast Notification */}
+                {labProfitToast && (
+                  <div style={{
+                    position: 'fixed', top: '20px', right: '20px', zIndex: 9999,
+                    padding: '14px 20px', borderRadius: '10px', minWidth: '320px',
+                    background: labProfitToast.type === 'success' ? '#f0fdf4' : '#fef2f2',
+                    border: `1px solid ${labProfitToast.type === 'success' ? '#86efac' : '#fca5a5'}`,
+                    color: labProfitToast.type === 'success' ? '#166534' : '#991b1b',
+                    fontWeight: 700, fontSize: '0.9rem', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    animation: 'slideInRight 0.3s ease'
+                  }}>
+                    {labProfitToast.message}
+                    <button onClick={() => setLabProfitToast(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: 'inherit', fontWeight: 900 }}>×</button>
+                  </div>
+                )}
                 <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', padding: '15px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div>
                     <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '5px' }}>SELECT MONTH:</label>
@@ -2007,26 +2108,76 @@ const AdminDashboard = ({ onLogout }) => {
                           <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
                           <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
                           <td style={{ textAlign: 'center', padding: '15px' }}>
-                            <input
-                              type="number"
-                              placeholder="0"
-                              value={monthlyLabProfits[`${selectedMonth}-${d.doctorName}`] || ''}
-                              onChange={(e) => setMonthlyLabProfits({
-                                ...monthlyLabProfits,
-                                [`${selectedMonth}-${d.doctorName}`]: e.target.value
-                              })}
-                              style={{
-                                width: '100px',
-                                padding: '6px',
-                                borderRadius: '4px',
-                                border: '1px solid #cbd5e1',
-                                textAlign: 'center',
-                                fontSize: '0.85rem',
-                                fontWeight: 700,
-                                color: '#0891b2',
-                                outline: 'none'
-                              }}
-                            />
+                            {(() => {
+                              const profitKey = `${selectedMonth}-${d.doctorName}`;
+                              const saveStatus = labProfitSaveStatus[profitKey];
+                              const storedVal = monthlyLabProfits[profitKey];
+                              const displayVal = storedVal !== undefined ? storedVal : '';
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <input
+                                      type="number"
+                                      placeholder="0"
+                                      value={displayVal}
+                                      onChange={(e) => setMonthlyLabProfits(prev => ({
+                                        ...prev,
+                                        [profitKey]: e.target.value === '' ? '' : parseFloat(e.target.value)
+                                      }))}
+                                      onBlur={(e) => {
+                                        const currentVal = monthlyLabProfits[profitKey];
+                                        if (currentVal !== undefined && currentVal !== '') {
+                                          handleSaveLabProfit(profitKey, d.doctorName, currentVal);
+                                        }
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0);
+                                          e.target.blur();
+                                        }
+                                      }}
+                                      style={{
+                                        width: '80px',
+                                        padding: '6px',
+                                        borderRadius: '4px',
+                                        border: saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                                        textAlign: 'center',
+                                        fontSize: '0.85rem',
+                                        fontWeight: 700,
+                                        color: '#0891b2',
+                                        outline: 'none',
+                                        background: saveStatus === 'saved' ? '#f0fdf4' : 'white'
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0)}
+                                      disabled={saveStatus === 'saving'}
+                                      style={{
+                                        padding: '5px 8px',
+                                        background: saveStatus === 'saved' ? '#10b981' : saveStatus === 'error' ? '#ef4444' : '#0891b2',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                        minWidth: '44px',
+                                        transition: 'background 0.2s'
+                                      }}
+                                      title="Save Lab Profit"
+                                    >
+                                      {saveStatus === 'saving' ? '...' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '✗' : '💾'}
+                                    </button>
+                                  </div>
+                                  {saveStatus === 'saved' && (
+                                    <span style={{ fontSize: '0.65rem', color: '#10b981', fontWeight: 700 }}>Saved!</span>
+                                  )}
+                                  {saveStatus === 'error' && (
+                                    <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>Save failed!</span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td style={{ textAlign: 'center', padding: '15px', color: '#be123c', fontWeight: 900 }}>{d.total ? `₹${d.total.toLocaleString()}` : '-'}</td>
                         </tr>
