@@ -104,6 +104,93 @@ const AdminDashboard = ({ onLogout }) => {
   const [labProfitSaveStatus, setLabProfitSaveStatus] = useState({}) // { [key]: 'saving'|'saved'|'error' }
   const [labProfitToast, setLabProfitToast] = useState(null) // { message, type } for save confirmation
 
+  // --- Optimization: Debounced Search for Smother UI ---
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // --- Optimization: Indexed Data for O(1) Lookups ---
+  const patientsByMRN = React.useMemo(() => {
+    const map = new Map();
+    patients.forEach(p => map.set(String(p.mrn).trim(), p));
+    return map;
+  }, [patients]);
+
+  const patientVisitCounts = React.useMemo(() => {
+    const counts = {};
+    allPrescriptions.forEach(rx => {
+      const mrn = String(rx.mrn).trim();
+      if (!counts[mrn]) counts[mrn] = new Set();
+      if (rx.date) counts[mrn].add(rx.date);
+    });
+    const finalCounts = {};
+    Object.keys(counts).forEach(mrn => finalCounts[mrn] = counts[mrn].size);
+    return finalCounts;
+  }, [allPrescriptions]);
+
+  // --- Optimization: Memoized Monthly Report Data ---
+  const monthlyReportData = React.useMemo(() => {
+    if (!selectedMonth) return { rows: [], grandTotalDr: 0, grandTotalMed: 0, grandTotalLab: 0, grandTotalLabProfit: 0, year: '', month: '' };
+
+    const year = parseInt(selectedMonth.split('-')[0]);
+    const month = parseInt(selectedMonth.split('-')[1]);
+    const docGroups = {};
+
+    // Filter prescriptions for the selected month (YYYY-MM)
+    const monthRx = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
+
+    const formatName = (n) => {
+      let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+      if (!clean) return 'Unassigned';
+      if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+      return `DR. ${clean}`;
+    };
+
+    let grandTotalDr = 0, grandTotalMed = 0, grandTotalLab = 0, grandTotalLabProfit = 0;
+
+    monthRx.forEach(rx => {
+      const dName = formatName(rx.doctor_name);
+      if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0 };
+
+      const drVal = rx.dr_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0);
+      const medVal = rx.med_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0);
+      const labVal = rx.lab_cash?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0);
+
+      docGroups[dName].count++;
+      docGroups[dName].dr += drVal;
+      docGroups[dName].med += medVal;
+      docGroups[dName].lab += labVal;
+
+      grandTotalDr += drVal;
+      grandTotalMed += medVal;
+      grandTotalLab += labVal;
+    });
+
+    const rows = [];
+    Object.keys(docGroups).sort().forEach(dName => {
+      if (dName.includes('ALL DOCTORS') || dName.includes('UNASSIGNED') || dName === 'Unassigned') return;
+
+      const g = docGroups[dName];
+      const profitKey = `${selectedMonth}-${dName}`;
+      const labProfitValue = parseFloat(monthlyLabProfits[profitKey]) || 0;
+      grandTotalLabProfit += labProfitValue;
+
+      rows.push({
+        doctorName: dName,
+        count: g.count,
+        drFees: g.dr,
+        medFees: g.med,
+        labCash: g.lab,
+        labProfit: labProfitValue,
+        total: g.dr + g.med + g.lab + labProfitValue
+      });
+    });
+
+    return { rows, grandTotalDr, grandTotalMed, grandTotalLab, grandTotalLabProfit, year, month };
+  }, [allPrescriptions, selectedMonth, monthlyLabProfits]);
+
   // --- Granular Fetchers for Better Performance ---
   const fetchLabProfits = async (month = selectedMonth) => {
     try {
@@ -627,19 +714,83 @@ const AdminDashboard = ({ onLogout }) => {
     setIsSyncing(false);
   };
 
-  const filteredMedicines = medicines.filter(m =>
-    m.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    m.composition?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredMedicines = React.useMemo(() => {
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    return medicines.filter(m =>
+      m.name?.toLowerCase().includes(searchLower) ||
+      m.composition?.toLowerCase().includes(searchLower)
+    );
+  }, [medicines, debouncedSearchTerm]);
 
   const allManagedDoctors = React.useMemo(() => {
     return users.map(u => ({ ...u, type: 'account' }));
   }, [users]);
 
-  const filteredUsers = allManagedDoctors.filter(u =>
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.phone?.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const filteredUsers = React.useMemo(() => {
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    return allManagedDoctors.filter(u =>
+      u.name?.toLowerCase().includes(searchLower) ||
+      u.phone?.toLowerCase().includes(searchLower)
+    );
+  }, [allManagedDoctors, debouncedSearchTerm]);
+
+  const filteredPatients = React.useMemo(() => {
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    const isNumericTerm = /^\d+$/.test(debouncedSearchTerm);
+    return patients.filter(p => {
+      const nameMatch = p.name?.toLowerCase().includes(searchLower);
+      const mrnMatch = isNumericTerm ? String(p.mrn).trim() === debouncedSearchTerm.trim() : String(p.mrn).includes(debouncedSearchTerm);
+      return nameMatch || mrnMatch;
+    });
+  }, [patients, debouncedSearchTerm]);
+
+  // Memoized Today OP merging and filtering
+  const todayOPList = React.useMemo(() => {
+    const map = new Map();
+    // A. Patients registered today
+    patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
+      .forEach(p => map.set(String(p.mrn).trim(), {
+        ...p,
+        name: p.name || 'Unknown Patient',
+        sex: p.sex || p.gender || ''
+      }));
+
+    // B. Prescriptions today (overwrites or adds)
+    prescriptions.filter(rx => rx.date === selectedDate)
+      .forEach(rx => {
+        const mrnKey = String(rx.mrn).trim();
+        const existing = map.get(mrnKey) || {};
+        const p = patientsByMRN.get(mrnKey) || {};
+
+        map.set(mrnKey, {
+          ...p,
+          ...existing,
+          ...rx,
+          rxId: rx.id,
+          name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
+          age: p.age || existing.age || '',
+          sex: p.sex || existing.sex || p.gender || '',
+          phone: p.phone || existing.phone || '',
+          place: p.place || existing.place || ''
+        });
+      });
+
+    const mergedList = Array.from(map.values());
+    const searchLower = debouncedSearchTerm.toLowerCase();
+    const isNumericTerm = /^\d+$/.test(debouncedSearchTerm);
+    const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+    const targetDoc = normalize(selectedDoctor);
+
+    return mergedList.filter(item => {
+      const matchesSearch = !debouncedSearchTerm ||
+        (item.name?.toLowerCase().includes(searchLower)) ||
+        (isNumericTerm ? String(item.mrn).trim() === debouncedSearchTerm.trim() : String(item.mrn).includes(debouncedSearchTerm));
+
+      if (!matchesSearch) return false;
+      const currentDoc = normalize(item.doctor_name);
+      return !selectedDoctor || currentDoc === targetDoc;
+    });
+  }, [patients, prescriptions, selectedDate, debouncedSearchTerm, selectedDoctor, patientsByMRN]);
 
   const handleUpdateFee = (rxId, field, value) => {
     setOpFees(prev => {
@@ -938,613 +1089,507 @@ const AdminDashboard = ({ onLogout }) => {
               </table>
             </div>
           )}
-          {activeTab === 'todayop' && (() => {
-            const mergedTodayList = (() => {
-              const map = new Map();
-              // A. Patients registered today
-              patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
-                .forEach(p => map.set(String(p.mrn).trim(), {
-                  ...p,
-                  name: p.name || 'Unknown Patient',
-                  sex: p.sex || p.gender || ''
-                }));
-
-              // B. Prescriptions today (overwrites or adds)
-              prescriptions.filter(rx => rx.date === selectedDate)
-                .forEach(rx => {
-                  const mrnKey = String(rx.mrn).trim();
-                  const existing = map.get(mrnKey) || {};
-                  // Ensure we get the full patient record for this MRN
-                  const p = patients.find(pat => String(pat.mrn).trim() === mrnKey) || {};
-
-                  map.set(mrnKey, {
-                    ...p,
-                    ...existing,
-                    ...rx,
-                    rxId: rx.id,
-                    name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
-                    age: p.age || existing.age || '',
-                    sex: p.sex || existing.sex || p.gender || '',
-                    phone: p.phone || existing.phone || '',
-                    place: p.place || existing.place || ''
-                  });
-                });
-              return Array.from(map.values());
-            })();
-
-            const todayOPList = mergedTodayList.filter(item => {
-              const searchLower = searchTerm.toLowerCase();
-              const isNumericTerm = /^\d+$/.test(searchTerm);
-              const matchesSearch = !searchTerm ||
-                (item.name?.toLowerCase().includes(searchLower)) ||
-                (isNumericTerm ? String(item.mrn).trim() === searchTerm.trim() : String(item.mrn).includes(searchTerm));
-              if (!matchesSearch) return false;
-
-              const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-              const currentDoc = normalize(item.doctor_name);
-              const targetDoc = normalize(selectedDoctor);
-              const doctorMatch = !selectedDoctor || currentDoc === targetDoc;
-
-              return matchesSearch && doctorMatch;
-            });
-
-            return (
-              <div className="grid-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {/* Date & Doctor Filter Row */}
-                <div style={{ display: 'flex', gap: 15, alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto', flexWrap: 'nowrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>DATE:</span>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={e => setSelectedDate(e.target.value)}
-                      style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.75rem', outline: 'none', background: 'white', fontWeight: 600, color: '#1e293b' }}
-                    />
-                  </div>
-                  <div style={{ width: '1px', height: '20px', background: '#e2e8f0' }}></div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>FILTER BY DOCTOR:</span>
-                  <button
-                    onClick={() => setSelectedDoctor(null)}
-                    style={{
-                      padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                      background: selectedDoctor === null ? '#1e293b' : 'white',
-                      color: selectedDoctor === null ? 'white' : '#475569',
-                      border: '1px solid ' + (selectedDoctor === null ? '#1e293b' : '#cbd5e1'),
-                      whiteSpace: 'nowrap'
-                    }}
-                  >ALL DOCTORS</button>
-                  {(() => {
-                    const uNames = users.map(u => u.name);
-                    const sdNames = savedDoctors.map(d => d.name);
-                    const rxNames = allPrescriptions.map(rx => rx.doctor_name);
-
-                    // Normalize names to "DR. NAME" format to merge variations
-                    const formatName = (n) => {
-                      let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-                      if (!clean) return '';
-                      if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
-                      return `DR. ${clean}`;
-                    };
-
-                    const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
-                    const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
-                      .filter(name => name &&
-                        !name.includes("MUHSIN") &&
-                        name !== "DR. ALL DOCTORS" &&
-                        name !== "ALL DOCTORS" &&
-                        name !== "DR. UNASSIGNED");
-
-                    return all.sort().map((docName, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedDoctor(docName)}
-                        style={{
-                          padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                          background: selectedDoctor === docName ? '#2563eb' : 'white',
-                          color: selectedDoctor === docName ? 'white' : '#475569',
-                          border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
-                          whiteSpace: 'nowrap'
-                        }}
-                      >{docName.toUpperCase()}</button>
-                    ));
-                  })()}
+          {activeTab === 'todayop' && (
+            <div className="grid-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Date & Doctor Filter Row */}
+              <div style={{ display: 'flex', gap: 15, alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>DATE:</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.75rem', outline: 'none', background: 'white', fontWeight: 600, color: '#1e293b' }}
+                  />
                 </div>
-                {todayOPList.length === 0 ? (
-                  <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🩺</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No patients registered today</div>
-                    <div style={{ fontSize: '0.85rem', marginTop: '6px' }}>Showing records for: {new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
-                  </div>
-                ) : (
-                  <table className="excel-table" style={{ tableLayout: 'auto' }}>
-                    <thead>
-                      <tr>
-                        <th className="row-num-col">#</th>
-                        <th>Token</th>
-                        <th>MRN</th>
-                        <th>Patient Name</th>
-                        <th style={{ width: 50 }}>Age</th>
-                        <th style={{ width: 60 }}>Sex</th>
-                        <th style={{ minWidth: 100 }}>Phone</th>
-                        <th style={{ minWidth: 150 }}>Attending Doctor</th>
-                        <th style={{ width: 90, color: '#16a34a', fontWeight: 800, textAlign: 'center' }}>Dr Fees (₹)</th>
-                        <th style={{ width: 90, color: '#9333ea', fontWeight: 800, textAlign: 'center' }}>Medicine (₹)</th>
-                        <th style={{ width: 90, color: '#2563eb', fontWeight: 800, textAlign: 'center' }}>Lab Given</th>
-                        <th style={{ width: 90, color: '#ea580c', fontWeight: 800, textAlign: 'center' }}>Lab Cash (₹)</th>
-                        <th style={{ width: 100, color: '#be123c', fontWeight: 800, textAlign: 'center' }}>Total (₹)</th>
-                        <th style={{ width: 70, color: '#0369a1', fontWeight: 800, textAlign: 'center' }}>Visits</th>
-                        <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayOPList.map((entry, idx) => {
-                        // Count total patient prescription visits for the color/label
-                        const allPatientRx = allPrescriptions.filter(rx => String(rx.mrn).trim() === String(entry.mrn).trim());
-                        const visitDates = new Set(allPatientRx.map(rx => rx.date).filter(Boolean));
-                        const visitCount = visitDates.size;
-                        const visitColor = visitCount === 1 ? { bg: '#f0fdf4', border: '#86efac', text: '#15803d' } : visitCount === 2 ? { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' } : visitCount === 3 ? { bg: '#fef3c7', border: '#fcd34d', text: '#b45309' } : { bg: '#fdf4ff', border: '#e879f9', text: '#7e22ce' };
+                <div style={{ width: '1px', height: '20px', background: '#e2e8f0' }}></div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>FILTER BY DOCTOR:</span>
+                <button
+                  onClick={() => setSelectedDoctor(null)}
+                  style={{
+                    padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                    background: selectedDoctor === null ? '#1e293b' : 'white',
+                    color: selectedDoctor === null ? 'white' : '#475569',
+                    border: '1px solid ' + (selectedDoctor === null ? '#1e293b' : '#cbd5e1'),
+                    whiteSpace: 'nowrap'
+                  }}
+                >ALL DOCTORS</button>
+                {(() => {
+                  const uNames = users.map(u => u.name);
+                  const sdNames = savedDoctors.map(d => d.name);
+                  const rxNames = allPrescriptions.map(rx => rx.doctor_name);
 
-                        return (
-                          <tr key={entry.rxId} style={{ height: '28px' }} data-rx-id={entry.rxId}>
-                            <td className="row-num-col">{idx + 1}</td>
-                            <td><span style={{ padding: '2px 8px', display: 'inline-block', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', color: '#92400e' }}>OP-{String(idx + 1).padStart(2, '0')}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
-                            <td>
-                              <div style={{ padding: '0 8px' }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{entry.name || entry.patient_name}</div>
-                                {entry.place && <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>📍 {entry.place}</div>}
-                              </div>
-                            </td>
-                            <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.age}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.sex}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.phone}</span></td>
-                            <td style={{ textAlign: 'center', minWidth: '150px' }}>
-                              {entry.doctor_name && entry.doctor_name !== 'Unassigned' ? (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                  <span style={{
-                                    padding: '2px 8px',
-                                    background: '#f0fdf4',
-                                    color: '#166534',
-                                    border: '1px solid #bbf7d0',
-                                    borderRadius: 4,
-                                    fontSize: '0.75rem',
-                                    fontWeight: 700
-                                  }}>
-                                    {entry.doctor_name}
-                                  </span>
-                                  <button
-                                    onClick={() => handleAssignDoctor(entry.mrn, entry.name, '', entry.rxId)}
-                                    title="Change Doctor"
-                                    style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem', padding: '2px' }}
-                                  >✏️</button>
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', padding: '4px 0' }}>
-                                  {(Array.from(new Set(["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST", ...users.map(u => u.name.trim().toUpperCase()), ...savedDoctors.map(d => d.name.trim().toUpperCase())]))
-                                    .map(n => {
-                                      let clean = n.replace(/^DR\.?\s*/i, '').trim();
-                                      if (!clean) return '';
-                                      if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
-                                      return `DR. ${clean}`;
-                                    })
-                                    .filter(name => name &&
-                                      !name.includes("MUHSIN") &&
-                                      name !== "DR. ALL DOCTORS" &&
-                                      name !== "ALL DOCTORS" &&
-                                      name !== "DR. UNASSIGNED"))
-                                    .filter((v, i, a) => a.indexOf(v) === i)
-                                    .sort()
-                                    .map((name, bIdx) => (
-                                      <button
-                                        key={bIdx}
-                                        onClick={(e) => { e.stopPropagation(); handleAssignDoctor(entry.mrn, entry.name, name, entry.rxId); }}
-                                        className="doctor-chip-btn"
-                                        style={{ padding: '4px 12px', fontSize: '0.68rem', fontWeight: 800, background: '#ffffff', border: '2px solid #e2e8f0', borderRadius: '20px', color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', textTransform: 'uppercase' }}
-                                      >{name}</button>
-                                    ))}
-                                </div>
-                              )}
-                            </td>
+                  // Normalize names to "DR. NAME" format to merge variations
+                  const formatName = (n) => {
+                    let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+                    if (!clean) return '';
+                    if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+                    return `DR. ${clean}`;
+                  };
 
-                            {/* Fees Columns */}
-                            {(() => {
-                              const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
-                              const isNil = (v) => v?.toString().toLowerCase() === 'nil';
-                              return (
-                                <>
-                                  <td style={{ padding: '0 4px' }}>
-                                    <input
-                                      placeholder="0"
-                                      value={fee.drFees}
-                                      onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
-                                      onBlur={() => handleSaveFees(entry)}
-                                      style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.drFees) ? '#94a3b8' : '#166534', background: '#f0fdf4', fontSize: '0.8rem' }}
-                                    />
-                                  </td>
-                                  <td style={{ padding: '0 4px' }}>
-                                    <input
-                                      placeholder="0"
-                                      value={fee.medFees}
-                                      onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
-                                      onBlur={() => handleSaveFees(entry)}
-                                      style={{ border: '1px solid #e9d5ff', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce', background: '#faf5ff', fontSize: '0.8rem' }}
-                                    />
-                                  </td>
-                                  <td style={{ padding: '0 4px' }}>
-                                    <input
-                                      placeholder="—"
-                                      value={fee.labGiven}
-                                      onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
-                                      onBlur={() => handleSaveFees(entry)}
-                                      style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8', background: '#eff6ff', fontSize: '0.8rem' }}
-                                    />
-                                  </td>
-                                  <td style={{ padding: '0 4px' }}>
-                                    <input
-                                      placeholder="0"
-                                      value={fee.labCash}
-                                      onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
-                                      onBlur={() => handleSaveFees(entry)}
-                                      style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c', background: '#fff7ed', fontSize: '0.8rem' }}
-                                    />
-                                  </td>
-                                  <td style={{ padding: '0 4px' }}>
-                                    <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 900, textAlign: 'center', color: isNil(fee.total) ? '#ef4444' : '#be123c', fontSize: '1rem' }}>
-                                      {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
-                                    </div>
-                                  </td>
-                                </>
-                              );
-                            })()}
+                  const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
+                  const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
+                    .filter(name => name &&
+                      !name.includes("MUHSIN") &&
+                      name !== "DR. ALL DOCTORS" &&
+                      name !== "ALL DOCTORS" &&
+                      name !== "DR. UNASSIGNED");
 
-                            <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
-                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                                <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: visitColor.bg, border: `2px solid ${visitColor.border}`, borderRadius: '50%', fontWeight: 900, fontSize: '0.85rem', color: visitColor.text, lineHeight: 1 }}>
-                                  {visitCount}
-                                </span>
-                                <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>visit{visitCount > 1 ? 's' : ''}</span>
-                              </div>
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
-                                <button
-                                  onClick={() => {
-                                    setEditingPatient({
-                                      mrn: entry.mrn,
-                                      patientName: entry.name || entry.patient_name || '',
-                                      age: entry.age || '',
-                                      gender: entry.sex || 'Male',
-                                      phone: entry.phone || '',
-                                      weight: entry.last_weight || '',
-                                      bp: entry.last_bp || '',
-                                      pulse: entry.last_pulse || '',
-                                      temp: entry.last_temp || ''
-                                    });
-                                    setIsEditModalOpen(true);
-                                  }}
-                                  style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                  title="Edit Patient Info"
-                                >✏️ Edit</button>
-                                {pendingDeleteMrn === entry.rxId ? (
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                    <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>Sure?</span>
-                                    <button onClick={() => handleDeleteOPVisit(entry.rxId)} style={{ background: '#ef4444', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.72rem', color: 'white', fontWeight: 700 }}>Yes</button>
-                                    <button onClick={() => setPendingDeleteMrn(null)} style={{ background: '#e2e8f0', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#475569', fontWeight: 700 }}>No</button>
-                                  </span>
-                                ) : (
-                                  <button onClick={() => setPendingDeleteMrn(entry.rxId)} style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Remove Visit">🗑️ Remove</button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    {todayOPList.length > 0 && (() => {
-                      const totals = todayOPList.reduce((acc, entry) => {
-                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
-                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                        acc.dr += parseFee(fee.drFees);
-                        acc.med += parseFee(fee.medFees);
-                        acc.labGiven += parseFee(fee.labGiven);
-                        acc.labCash += parseFee(fee.labCash);
-                        acc.grand += parseFee(fee.total);
-                        return acc;
-                      }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
+                  return all.sort().map((docName, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedDoctor(docName)}
+                      style={{
+                        padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                        background: selectedDoctor === docName ? '#2563eb' : 'white',
+                        color: selectedDoctor === docName ? 'white' : '#475569',
+                        border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
+                        whiteSpace: 'nowrap'
+                      }}
+                    >{docName.toUpperCase()}</button>
+                  ));
+                })()}
+              </div>
+              {todayOPList.length === 0 ? (
+                <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🩺</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No patients registered today</div>
+                  <div style={{ fontSize: '0.85rem', marginTop: '6px' }}>Showing records for: {new Date(selectedDate).toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+                </div>
+              ) : (
+                <table className="excel-table" style={{ tableLayout: 'auto' }}>
+                  <thead>
+                    <tr>
+                      <th className="row-num-col">#</th>
+                      <th>Token</th>
+                      <th>MRN</th>
+                      <th>Patient Name</th>
+                      <th style={{ width: 50 }}>Age</th>
+                      <th style={{ width: 60 }}>Sex</th>
+                      <th style={{ minWidth: 100 }}>Phone</th>
+                      <th style={{ minWidth: 150 }}>Attending Doctor</th>
+                      <th style={{ width: 90, color: '#16a34a', fontWeight: 800, textAlign: 'center' }}>Dr Fees (₹)</th>
+                      <th style={{ width: 90, color: '#9333ea', fontWeight: 800, textAlign: 'center' }}>Medicine (₹)</th>
+                      <th style={{ width: 90, color: '#2563eb', fontWeight: 800, textAlign: 'center' }}>Lab Given</th>
+                      <th style={{ width: 90, color: '#ea580c', fontWeight: 800, textAlign: 'center' }}>Lab Cash (₹)</th>
+                      <th style={{ width: 100, color: '#be123c', fontWeight: 800, textAlign: 'center' }}>Total (₹)</th>
+                      <th style={{ width: 70, color: '#0369a1', fontWeight: 800, textAlign: 'center' }}>Visits</th>
+                      <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {todayOPList.map((entry, idx) => {
+                      const visitCount = patientVisitCounts[String(entry.mrn).trim()] || 0;
+                      const visitColor = visitCount === 1 ? { bg: '#f0fdf4', border: '#86efac', text: '#15803d' } : visitCount === 2 ? { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' } : visitCount === 3 ? { bg: '#fef3c7', border: '#fcd34d', text: '#b45309' } : { bg: '#fdf4ff', border: '#e879f9', text: '#7e22ce' };
 
                       return (
-                        <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
-                          <tr style={{ height: '40px' }}>
-                            <td colSpan="8" style={{ background: '#1e293b', padding: '0 14px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
-                                <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
-                              </div>
-                            </td>
-                            <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.dr}</td>
-                            <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.med}</td>
-                            <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labGiven}</td>
-                            <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labCash}</td>
-                            <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.grand}</td>
-                            <td colSpan="2" style={{ background: '#1e293b' }}></td>
-                          </tr>
-                        </tfoot>
-                      );
-                    })()}
-                  </table>
-                )}
-              </div>
-            );
-          })()}
-
-          {activeTab === 'fees' && (() => {
-            const mergedTodayList = (() => {
-              const map = new Map();
-              patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
-                .forEach(p => map.set(String(p.mrn).trim(), {
-                  ...p,
-                  name: p.name || 'Unknown Patient',
-                  sex: p.sex || p.gender || ''
-                }));
-
-              prescriptions.filter(rx => rx.date === selectedDate)
-                .forEach(rx => {
-                  const mrnKey = String(rx.mrn).trim();
-                  const existing = map.get(mrnKey) || {};
-                  const p = patients.find(pat => String(pat.mrn).trim() === mrnKey) || {};
-
-                  map.set(mrnKey, {
-                    ...p,
-                    ...existing,
-                    ...rx,
-                    rxId: rx.id,
-                    name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
-                    age: p.age || existing.age || '',
-                    sex: p.sex || existing.sex || p.gender || '',
-                    phone: p.phone || existing.phone || '',
-                    place: p.place || existing.place || '',
-                    drFees: rx.dr_fees,
-                    medFees: rx.med_fees,
-                    labGiven: rx.lab_given,
-                    labCash: rx.lab_cash
-                  });
-                });
-              return Array.from(map.values());
-            })();
-
-            const feesOPList = mergedTodayList.filter(item => {
-              const searchLower = searchTerm.toLowerCase();
-              const isNumericTerm = /^\d+$/.test(searchTerm);
-              const matchesSearch = !searchTerm ||
-                (item.name?.toLowerCase().includes(searchLower)) ||
-                (isNumericTerm ? String(item.mrn).trim() === searchTerm.trim() : String(item.mrn).includes(searchTerm));
-              if (!matchesSearch) return false;
-
-              const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-              const currentDoc = normalize(item.doctor_name);
-              const targetDoc = normalize(selectedDoctor);
-              const doctorMatch = !selectedDoctor || currentDoc === targetDoc;
-
-              return matchesSearch && doctorMatch;
-            });
-
-            return (
-              <div className="grid-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {/* Filters Row */}
-                <div style={{ display: 'flex', gap: 15, alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto', flexWrap: 'nowrap' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>DATE:</span>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={e => setSelectedDate(e.target.value)}
-                      style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.75rem', outline: 'none', background: 'white', fontWeight: 600, color: '#1e293b' }}
-                    />
-                  </div>
-                  <div style={{ width: '1px', height: '20px', background: '#e2e8f0' }}></div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>FILTER BY DOCTOR:</span>
-                  <button
-                    onClick={() => setSelectedDoctor(null)}
-                    style={{
-                      padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                      background: selectedDoctor === null ? '#1e293b' : 'white',
-                      color: selectedDoctor === null ? 'white' : '#475569',
-                      border: '1px solid ' + (selectedDoctor === null ? '#1e293b' : '#cbd5e1'),
-                      whiteSpace: 'nowrap'
-                    }}
-                  >ALL DOCTORS</button>
-                  {(() => {
-                    const uNames = users.map(u => u.name);
-                    const sdNames = savedDoctors.map(d => d.name);
-                    const rxNames = allPrescriptions.map(rx => rx.doctor_name);
-                    const formatName = (n) => {
-                      let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-                      return clean ? `DR. ${clean}` : '';
-                    };
-                    const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
-                    const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
-                      .filter(name => name && !name.includes("MUHSIN") && name !== "DR. ALL DOCTORS");
-
-                    return all.sort().map((docName, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedDoctor(docName)}
-                        style={{
-                          padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
-                          background: selectedDoctor === docName ? '#2563eb' : 'white',
-                          color: selectedDoctor === docName ? 'white' : '#475569',
-                          border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
-                          whiteSpace: 'nowrap'
-                        }}
-                      >{docName.toUpperCase()}</button>
-                    ));
-                  })()}
-                </div>
-
-                {feesOPList.length === 0 ? (
-                  <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>💰</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No patients registered today for fees entry</div>
-                  </div>
-                ) : (
-                  <table className="excel-table">
-                    <thead>
-                      <tr>
-                        <th className="row-num-col">#</th>
-                        <th>MRN</th>
-                        <th>Patient Name</th>
-                        <th style={{ minWidth: 100 }}>Place</th>
-                        <th style={{ color: '#16a34a', fontWeight: 800 }}>Dr Fees (₹)</th>
-                        <th style={{ color: '#9333ea', fontWeight: 800 }}>Medicine (₹)</th>
-                        <th style={{ color: '#2563eb', fontWeight: 800 }}>Lab Given</th>
-                        <th style={{ color: '#ea580c', fontWeight: 800 }}>Lab Cash (₹)</th>
-                        <th style={{ color: '#be123c', fontWeight: 800 }}>Total (₹)</th>
-                        <th style={{ width: 80, textAlign: 'center' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {feesOPList.map((entry, idx) => {
-                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
-                        const isNil = (v) => v?.toString().toLowerCase() === 'nil';
-                        return (
-                          <tr key={entry.rxId} data-rx-id={entry.rxId}>
-                            <td className="row-num-col">{idx + 1}</td>
-                            <td><span style={{ fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
-                            <td style={{ fontWeight: 600, color: '#475569' }}>{entry.name || entry.patient_name}</td>
-                            <td style={{ fontWeight: 600, color: '#64748b' }}>{entry.place || '—'}</td>
-                            <td>
-                              <input
-                                placeholder="0"
-                                value={fee.drFees}
-                                onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
-                                onBlur={() => handleSaveFees(entry)}
-                                style={{
+                        <tr key={entry.rxId} style={{ height: '28px' }} data-rx-id={entry.rxId}>
+                          <td className="row-num-col">{idx + 1}</td>
+                          <td><span style={{ padding: '2px 8px', display: 'inline-block', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', color: '#92400e' }}>OP-{String(idx + 1).padStart(2, '0')}</span></td>
+                          <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
+                          <td>
+                            <div style={{ padding: '0 8px' }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{entry.name || entry.patient_name}</div>
+                              {entry.place && <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '1px' }}>📍 {entry.place}</div>}
+                            </div>
+                          </td>
+                          <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.age}</span></td>
+                          <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.sex}</span></td>
+                          <td><span style={{ padding: '0 8px', display: 'block' }}>{entry.phone}</span></td>
+                          <td style={{ textAlign: 'center', minWidth: '150px' }}>
+                            {entry.doctor_name && entry.doctor_name !== 'Unassigned' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  background: '#f0fdf4',
+                                  color: '#166534',
                                   border: '1px solid #bbf7d0',
-                                  borderRadius: 8,
-                                  padding: '8px',
-                                  width: '100%',
-                                  fontWeight: 700,
-                                  textAlign: 'center',
-                                  color: isNil(fee.drFees) ? '#94a3b8' : '#166534',
-                                  background: '#f0fdf4'
+                                  borderRadius: 4,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 700
+                                }}>
+                                  {entry.doctor_name}
+                                </span>
+                                <button
+                                  onClick={() => handleAssignDoctor(entry.mrn, entry.name, '', entry.rxId)}
+                                  title="Change Doctor"
+                                  style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem', padding: '2px' }}
+                                >✏️</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center', padding: '4px 0' }}>
+                                {(Array.from(new Set(["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST", ...users.map(u => u.name.trim().toUpperCase()), ...savedDoctors.map(d => d.name.trim().toUpperCase())]))
+                                  .map(n => {
+                                    let clean = n.replace(/^DR\.?\s*/i, '').trim();
+                                    if (!clean) return '';
+                                    if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
+                                    return `DR. ${clean}`;
+                                  })
+                                  .filter(name => name &&
+                                    !name.includes("MUHSIN") &&
+                                    name !== "DR. ALL DOCTORS" &&
+                                    name !== "ALL DOCTORS" &&
+                                    name !== "DR. UNASSIGNED"))
+                                  .filter((v, i, a) => a.indexOf(v) === i)
+                                  .sort()
+                                  .map((name, bIdx) => (
+                                    <button
+                                      key={bIdx}
+                                      onClick={(e) => { e.stopPropagation(); handleAssignDoctor(entry.mrn, entry.name, name, entry.rxId); }}
+                                      className="doctor-chip-btn"
+                                      style={{ padding: '4px 12px', fontSize: '0.68rem', fontWeight: 800, background: '#ffffff', border: '2px solid #e2e8f0', borderRadius: '20px', color: '#0f172a', cursor: 'pointer', whiteSpace: 'nowrap', textTransform: 'uppercase' }}
+                                    >{name}</button>
+                                  ))}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Fees Columns */}
+                          {(() => {
+                            const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                            const isNil = (v) => v?.toString().toLowerCase() === 'nil';
+                            return (
+                              <>
+                                <td style={{ padding: '0 4px' }}>
+                                  <input
+                                    placeholder="0"
+                                    value={fee.drFees}
+                                    onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
+                                    onBlur={() => handleSaveFees(entry)}
+                                    style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.drFees) ? '#94a3b8' : '#166534', background: '#f0fdf4', fontSize: '0.8rem' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '0 4px' }}>
+                                  <input
+                                    placeholder="0"
+                                    value={fee.medFees}
+                                    onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
+                                    onBlur={() => handleSaveFees(entry)}
+                                    style={{ border: '1px solid #e9d5ff', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce', background: '#faf5ff', fontSize: '0.8rem' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '0 4px' }}>
+                                  <input
+                                    placeholder="—"
+                                    value={fee.labGiven}
+                                    onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
+                                    onBlur={() => handleSaveFees(entry)}
+                                    style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8', background: '#eff6ff', fontSize: '0.8rem' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '0 4px' }}>
+                                  <input
+                                    placeholder="0"
+                                    value={fee.labCash}
+                                    onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
+                                    onBlur={() => handleSaveFees(entry)}
+                                    style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c', background: '#fff7ed', fontSize: '0.8rem' }}
+                                  />
+                                </td>
+                                <td style={{ padding: '0 4px' }}>
+                                  <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 900, textAlign: 'center', color: isNil(fee.total) ? '#ef4444' : '#be123c', fontSize: '1rem' }}>
+                                    {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
+                                  </div>
+                                </td>
+                              </>
+                            );
+                          })()}
+
+                          <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                              <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: visitColor.bg, border: `2px solid ${visitColor.border}`, borderRadius: '50%', fontWeight: 900, fontSize: '0.85rem', color: visitColor.text, lineHeight: 1 }}>
+                                {visitCount}
+                              </span>
+                              <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>visit{visitCount > 1 ? 's' : ''}</span>
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                              <button
+                                onClick={() => {
+                                  setEditingPatient({
+                                    mrn: entry.mrn,
+                                    patientName: entry.name || entry.patient_name || '',
+                                    age: entry.age || '',
+                                    gender: entry.sex || 'Male',
+                                    phone: entry.phone || '',
+                                    weight: entry.last_weight || '',
+                                    bp: entry.last_bp || '',
+                                    pulse: entry.last_pulse || '',
+                                    temp: entry.last_temp || ''
+                                  });
+                                  setIsEditModalOpen(true);
                                 }}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                placeholder="0"
-                                value={fee.medFees}
-                                onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
-                                onBlur={() => handleSaveFees(entry)}
-                                style={{
-                                  border: '1px solid #e9d5ff',
-                                  borderRadius: 8,
-                                  padding: '8px',
-                                  width: '100%',
-                                  fontWeight: 700,
-                                  textAlign: 'center',
-                                  color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce',
-                                  background: '#faf5ff'
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                placeholder="—"
-                                value={fee.labGiven}
-                                onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
-                                onBlur={() => handleSaveFees(entry)}
-                                style={{
-                                  border: '1px solid #bfdbfe',
-                                  borderRadius: 8,
-                                  padding: '8px',
-                                  width: '100%',
-                                  fontWeight: 700,
-                                  textAlign: 'center',
-                                  color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8',
-                                  background: '#eff6ff'
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                placeholder="0"
-                                value={fee.labCash}
-                                onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
-                                onBlur={() => handleSaveFees(entry)}
-                                style={{
-                                  border: '1px solid #fed7aa',
-                                  borderRadius: 8,
-                                  padding: '8px',
-                                  width: '100%',
-                                  fontWeight: 700,
-                                  textAlign: 'center',
-                                  color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c',
-                                  background: '#fff7ed'
-                                }}
-                              />
-                            </td>
-                            <td>
-                              <div style={{
-                                background: '#fff1f2',
-                                border: '1px solid #fecdd3',
+                                style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#d97706', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                title="Edit Patient Info"
+                              >✏️ Edit</button>
+                              {pendingDeleteMrn === entry.rxId ? (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 700 }}>Sure?</span>
+                                  <button onClick={() => handleDeleteOPVisit(entry.rxId)} style={{ background: '#ef4444', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.72rem', color: 'white', fontWeight: 700 }}>Yes</button>
+                                  <button onClick={() => setPendingDeleteMrn(null)} style={{ background: '#e2e8f0', border: 'none', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#475569', fontWeight: 700 }}>No</button>
+                                </span>
+                              ) : (
+                                <button onClick={() => setPendingDeleteMrn(entry.rxId)} style={{ background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }} title="Remove Visit">🗑️ Remove</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {todayOPList.length > 0 && (() => {
+                    const totals = todayOPList.reduce((acc, entry) => {
+                      const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                      const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                      acc.dr += parseFee(fee.drFees);
+                      acc.med += parseFee(fee.medFees);
+                      acc.labGiven += parseFee(fee.labGiven);
+                      acc.labCash += parseFee(fee.labCash);
+                      acc.grand += parseFee(fee.total);
+                      return acc;
+                    }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
+
+                    return (
+                      <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
+                        <tr style={{ height: '40px' }}>
+                          <td colSpan="8" style={{ background: '#1e293b', padding: '0 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                              <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
+                            </div>
+                          </td>
+                          <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.dr}</td>
+                          <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.med}</td>
+                          <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labGiven}</td>
+                          <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.labCash}</td>
+                          <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '0.95rem' }}>₹{totals.grand}</td>
+                          <td colSpan="2" style={{ background: '#1e293b' }}></td>
+                        </tr>
+                      </tfoot>
+                    );
+                  })()}
+                </table>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'fees' && (
+            <div className="grid-container" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Filters Row */}
+              <div style={{ display: 'flex', gap: 15, alignItems: 'center', background: '#f8fafc', padding: '10px 15px', borderRadius: 8, border: '1px solid #e2e8f0', overflowX: 'auto', flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>DATE:</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    style={{ padding: '4px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.75rem', outline: 'none', background: 'white', fontWeight: 600, color: '#1e293b' }}
+                  />
+                </div>
+                <div style={{ width: '1px', height: '20px', background: '#e2e8f0' }}></div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', whiteSpace: 'nowrap' }}>FILTER BY DOCTOR:</span>
+                <button
+                  onClick={() => setSelectedDoctor(null)}
+                  style={{
+                    padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                    background: selectedDoctor === null ? '#1e293b' : 'white',
+                    color: selectedDoctor === null ? 'white' : '#475569',
+                    border: '1px solid ' + (selectedDoctor === null ? '#1e293b' : '#cbd5e1'),
+                    whiteSpace: 'nowrap'
+                  }}
+                >ALL DOCTORS</button>
+                {(() => {
+                  const uNames = users.map(u => u.name);
+                  const sdNames = savedDoctors.map(d => d.name);
+                  const rxNames = allPrescriptions.map(rx => rx.doctor_name);
+                  const formatName = (n) => {
+                    let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
+                    return clean ? `DR. ${clean}` : '';
+                  };
+                  const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
+                  const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
+                    .filter(name => name && !name.includes("MUHSIN") && name !== "DR. ALL DOCTORS");
+
+                  return all.sort().map((docName, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedDoctor(docName)}
+                      style={{
+                        padding: '4px 12px', borderRadius: 15, fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer',
+                        background: selectedDoctor === docName ? '#2563eb' : 'white',
+                        color: selectedDoctor === docName ? 'white' : '#475569',
+                        border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
+                        whiteSpace: 'nowrap'
+                      }}
+                    >{docName.toUpperCase()}</button>
+                  ));
+                })()}
+              </div>
+
+              {feesOPList.length === 0 ? (
+                <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '12px' }}>💰</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No patients registered today for fees entry</div>
+                </div>
+              ) : (
+                <table className="excel-table">
+                  <thead>
+                    <tr>
+                      <th className="row-num-col">#</th>
+                      <th>MRN</th>
+                      <th>Patient Name</th>
+                      <th style={{ minWidth: 100 }}>Place</th>
+                      <th style={{ color: '#16a34a', fontWeight: 800 }}>Dr Fees (₹)</th>
+                      <th style={{ color: '#9333ea', fontWeight: 800 }}>Medicine (₹)</th>
+                      <th style={{ color: '#2563eb', fontWeight: 800 }}>Lab Given</th>
+                      <th style={{ color: '#ea580c', fontWeight: 800 }}>Lab Cash (₹)</th>
+                      <th style={{ color: '#be123c', fontWeight: 800 }}>Total (₹)</th>
+                      <th style={{ width: 80, textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feesOPList.map((entry, idx) => {
+                      const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                      const isNil = (v) => v?.toString().toLowerCase() === 'nil';
+                      return (
+                        <tr key={entry.rxId} data-rx-id={entry.rxId}>
+                          <td className="row-num-col">{idx + 1}</td>
+                          <td><span style={{ fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>
+                          <td style={{ fontWeight: 600, color: '#475569' }}>{entry.name || entry.patient_name}</td>
+                          <td style={{ fontWeight: 600, color: '#64748b' }}>{entry.place || '—'}</td>
+                          <td>
+                            <input
+                              placeholder="0"
+                              value={fee.drFees}
+                              onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
+                              onBlur={() => handleSaveFees(entry)}
+                              style={{
+                                border: '1px solid #bbf7d0',
                                 borderRadius: 8,
                                 padding: '8px',
                                 width: '100%',
-                                fontWeight: 900,
+                                fontWeight: 700,
                                 textAlign: 'center',
-                                color: isNil(fee.total) ? '#ef4444' : '#be123c',
-                                fontSize: '1rem'
-                              }}>
-                                {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
-                              </div>
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <button
-                                onClick={() => handleSaveFees(entry)}
-                                style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}
-                              >💾 Save</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    {feesOPList.length > 0 && (() => {
-                      const totals = feesOPList.reduce((acc, entry) => {
-                        const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
-                        const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
-                        acc.dr += parseFee(fee.drFees);
-                        acc.med += parseFee(fee.medFees);
-                        acc.labGiven += parseFee(fee.labGiven);
-                        acc.labCash += parseFee(fee.labCash);
-                        acc.grand += parseFee(fee.total);
-                        return acc;
-                      }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
-
-                      return (
-                        <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
-                          <tr style={{ height: '44px' }}>
-                            <td colSpan="4" style={{ background: '#1e293b', padding: '0 14px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
-                                <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
-                              </div>
-                            </td>
-                            <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.dr}</td>
-                            <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.med}</td>
-                            <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labGiven}</td>
-                            <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labCash}</td>
-                            <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.grand}</td>
-                            <td style={{ background: '#1e293b' }}></td>
-                          </tr>
-                        </tfoot>
+                                color: isNil(fee.drFees) ? '#94a3b8' : '#166534',
+                                background: '#f0fdf4'
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              placeholder="0"
+                              value={fee.medFees}
+                              onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
+                              onBlur={() => handleSaveFees(entry)}
+                              style={{
+                                border: '1px solid #e9d5ff',
+                                borderRadius: 8,
+                                padding: '8px',
+                                width: '100%',
+                                fontWeight: 700,
+                                textAlign: 'center',
+                                color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce',
+                                background: '#faf5ff'
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              placeholder="—"
+                              value={fee.labGiven}
+                              onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
+                              onBlur={() => handleSaveFees(entry)}
+                              style={{
+                                border: '1px solid #bfdbfe',
+                                borderRadius: 8,
+                                padding: '8px',
+                                width: '100%',
+                                fontWeight: 700,
+                                textAlign: 'center',
+                                color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8',
+                                background: '#eff6ff'
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <input
+                              placeholder="0"
+                              value={fee.labCash}
+                              onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
+                              onBlur={() => handleSaveFees(entry)}
+                              style={{
+                                border: '1px solid #fed7aa',
+                                borderRadius: 8,
+                                padding: '8px',
+                                width: '100%',
+                                fontWeight: 700,
+                                textAlign: 'center',
+                                color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c',
+                                background: '#fff7ed'
+                              }}
+                            />
+                          </td>
+                          <td>
+                            <div style={{
+                              background: '#fff1f2',
+                              border: '1px solid #fecdd3',
+                              borderRadius: 8,
+                              padding: '8px',
+                              width: '100%',
+                              fontWeight: 900,
+                              textAlign: 'center',
+                              color: isNil(fee.total) ? '#ef4444' : '#be123c',
+                              fontSize: '1rem'
+                            }}>
+                              {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              onClick={() => handleSaveFees(entry)}
+                              style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 12px', fontSize: '0.75rem', fontWeight: 700, color: '#64748b' }}
+                            >💾 Save</button>
+                          </td>
+                        </tr>
                       );
-                    })()}
-                  </table>
-                )}
-              </div>
-            );
-          })()}
+                    })}
+                  </tbody>
+                  {feesOPList.length > 0 && (() => {
+                    const totals = feesOPList.reduce((acc, entry) => {
+                      const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                      const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
+                      acc.dr += parseFee(fee.drFees);
+                      acc.med += parseFee(fee.medFees);
+                      acc.labGiven += parseFee(fee.labGiven);
+                      acc.labCash += parseFee(fee.labCash);
+                      acc.grand += parseFee(fee.total);
+                      return acc;
+                    }, { dr: 0, med: 0, labGiven: 0, labCash: 0, grand: 0 });
+
+                    return (
+                      <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 11 }}>
+                        <tr style={{ height: '44px' }}>
+                          <td colSpan="4" style={{ background: '#1e293b', padding: '0 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11" /></svg>
+                              <span style={{ color: 'white', fontWeight: 900, fontSize: '0.8rem', letterSpacing: '0.06em' }}>CATEGORY TOTALS</span>
+                            </div>
+                          </td>
+                          <td style={{ background: '#166534', color: '#4ade80', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.dr}</td>
+                          <td style={{ background: '#581c87', color: '#c084fc', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.med}</td>
+                          <td style={{ background: '#1e3a8a', color: '#93c5fd', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labGiven}</td>
+                          <td style={{ background: '#7c2d12', color: '#fdba74', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.labCash}</td>
+                          <td style={{ background: '#4c0519', color: '#fda4af', fontWeight: 900, textAlign: 'center', fontSize: '1rem' }}>₹{totals.grand}</td>
+                          <td style={{ background: '#1e293b' }}></td>
+                        </tr>
+                      </tfoot>
+                    );
+                  })()}
+                </table>
+              )}
+            </div>
+          )}
 
           {activeTab === 'users' && (
             <div className="grid-container">
@@ -1695,7 +1740,6 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ width: 60 }}>Age</th>
                       <th style={{ width: 60 }}>Sex</th>
                       <th>Phone</th>
-                      <th>Place</th>
                       <th>Date</th>
                       <th>Weight</th>
                       <th>BP</th>
@@ -1716,7 +1760,6 @@ const AdminDashboard = ({ onLogout }) => {
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.age}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.sex}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block' }}>{p.phone}</span></td>
-                            <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 600, color: '#64748b' }}>{p.place || '—'}</span></td>
                             <td><span style={{ padding: '0 8px', display: 'block', whiteSpace: 'nowrap', fontSize: '0.7rem', lineHeight: 1.4 }}>
                               {(() => {
                                 // Prefer registration_date (static) for the table view
@@ -1818,381 +1861,316 @@ const AdminDashboard = ({ onLogout }) => {
             );
           })()}
 
-          {activeTab === 'monthly' && (() => {
-            const year = parseInt(selectedMonth.split('-')[0]);
-            const month = parseInt(selectedMonth.split('-')[1]);
-            const daysInMonth = new Date(year, month, 0).getDate();
-
-            const monthlyData = [];
-            const docGroups = {};
-            let grandTotalDr = 0;
-            let grandTotalMed = 0;
-
-            const monthRx = allPrescriptions.filter(rx => rx.date && rx.date.startsWith(selectedMonth));
-
-            let grandTotalLab = 0;
-            const formatName = (n) => {
-              let clean = (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
-              if (!clean) return 'Unassigned';
-              if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
-              return `DR. ${clean}`;
-            };
-
-            monthRx.forEach(rx => {
-              const dName = formatName(rx.doctor_name);
-              if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0 };
-              const df = rx.dr_fees?.toString().toLowerCase();
-              const mf = rx.med_fees?.toString().toLowerCase();
-              const lf = rx.lab_cash?.toString().toLowerCase();
-              docGroups[dName].count++;
-              const drVal = (df === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0));
-              const medVal = (mf === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0));
-              const labVal = (lf === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0));
-              docGroups[dName].dr += drVal;
-              docGroups[dName].med += medVal;
-              docGroups[dName].lab += labVal;
-              grandTotalDr += drVal;
-              grandTotalMed += medVal;
-              grandTotalLab += labVal;
-            });
-
-            let totalLabProfit = 0;
-            Object.keys(docGroups).sort().forEach(dName => {
-              // Filter out utility names that aren't actual doctors
-              if (dName.includes('ALL DOCTORS') || dName.includes('UNASSIGNED') || dName === 'Unassigned') return;
-
-              const g = docGroups[dName];
-              const labProfitValue = parseFloat(monthlyLabProfits[`${selectedMonth}-${dName}`]) || 0;
-              totalLabProfit += labProfitValue;
-
-              monthlyData.push({
-                doctorName: dName,
-                count: g.count,
-                drFees: g.dr,
-                medFees: g.med,
-                labCash: g.lab,
-                labProfit: labProfitValue,
-                total: g.dr + g.med + g.lab + labProfitValue
-              });
-            });
-
-            // Recalculate grand totals based on filtered results for UI consistency
-            grandTotalDr = monthlyData.reduce((s, d) => s + d.drFees, 0);
-            grandTotalMed = monthlyData.reduce((s, d) => s + d.medFees, 0);
-            grandTotalLab = monthlyData.reduce((s, d) => s + d.labCash, 0);
-            const grandTotalLabProfit = totalLabProfit;
-
-            return (
-              <div className="grid-container">
-                {/* Lab Profit Save Toast Notification */}
-                {labProfitToast && (
-                  <div style={{
-                    position: 'fixed', top: '20px', right: '20px', zIndex: 9999,
-                    padding: '14px 20px', borderRadius: '10px', minWidth: '320px',
-                    background: labProfitToast.type === 'success' ? '#f0fdf4' : '#fef2f2',
-                    border: `1px solid ${labProfitToast.type === 'success' ? '#86efac' : '#fca5a5'}`,
-                    color: labProfitToast.type === 'success' ? '#166534' : '#991b1b',
-                    fontWeight: 700, fontSize: '0.9rem', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                    display: 'flex', alignItems: 'center', gap: '10px',
-                    animation: 'slideInRight 0.3s ease'
-                  }}>
-                    {labProfitToast.message}
-                    <button onClick={() => setLabProfitToast(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: 'inherit', fontWeight: 900 }}>×</button>
-                  </div>
-                )}
-                <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', padding: '15px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '5px' }}>SELECT MONTH:</label>
-                    <input
-                      type="month"
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}
-                    />
-                  </div>
-                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
-                    <button
-                      onClick={async () => {
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = `
-                          <div style="padding: 40px; font-family: sans-serif; color: #334155;">
-                            <h1 style="text-align: center; margin-bottom: 5px; color: #1e293b;">${clinicSettings.name}</h1>
-                            <h2 style="text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; text-transform: uppercase;">MONTHLY COLLECTION REPORT: ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 30px;">
-                              <thead>
-                                <tr>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: left; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Doctor Name</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Visits</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Profit</th>
-                                  <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                ${monthlyData.map(d => `
-                                  <tr>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">${d.doctorName}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.count}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labProfit.toLocaleString()}</td>
-                                    <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
-                                  </tr>
-                                `).join('')}
-                              </tbody>
-                              <tfoot>
-                                <tr style="font-weight: bold; background: #f1f5f9;">
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">MONTHLY TOTAL</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${grandTotalLabProfit.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
-                                </tr>
-                              </tfoot>
-                            </table>
-                            <div style="margin-top: 50px; display: flex; justify-content: space-between;">
-                              <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Prepared By</div>
-                              <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Authorized Signature</div>
-                            </div>
-                          </div>
-                        `;
-
-                        const opt = {
-                          margin: 10,
-                          filename: `Monthly_Report_${selectedMonth}.pdf`,
-                          image: { type: 'jpeg', quality: 0.98 },
-                          html2canvas: { scale: 2 },
-                          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                        };
-
-                        try {
-                          setIsSyncing(true);
-                          const worker = window.html2pdf().set(opt).from(tempDiv);
-                          const pdfBlob = await worker.output('blob');
-                          const pdfFile = new File([pdfBlob], opt.filename, { type: 'application/pdf' });
-
-                          if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-                            await navigator.share({
-                              files: [pdfFile],
-                              title: `Monthly Report - ${selectedMonth}`
-                            });
-                          } else {
-                            await worker.save();
-                          }
-                        } catch (err) {
-                          console.error('Share failed:', err);
-                          alert('Failed to share PDF');
-                        } finally {
-                          setIsSyncing(false);
-                        }
-                      }}
-                      className="excel-add-btn"
-                      style={{ background: '#10b981' }}
-                    >
-                      ✉️ Share Monthly Report
-                    </button>
-                    <button
-                      onClick={() => {
-                        const printWindow = window.open('', '_blank');
-                        const reportHtml = `
-                            <html>
-                              <head>
-                                <title>Monthly Collection Report - ${selectedMonth}</title>
-                                <style>
-                                  body { font-family: sans-serif; padding: 40px; color: #334155; }
-                                  table { width: 100%; border-collapse: collapse; margin-top: 30px; }
-                                  th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
-                                  th { background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
-                                  .total-row { font-weight: bold; background: #f1f5f9; }
-                                  h1 { text-align: center; margin-bottom: 5px; color: #1e293b; }
-                                  h2 { text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; }
-                                  .footer { margin-top: 50px; display: flex; justify-content: space-between; }
-                                  .sig { border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px; }
-                                </style>
-                              </head>
-                              <body>
-                                <h1>${clinicSettings.name}</h1>
-                                <h2>MONTHLY COLLECTION REPORT: ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
-                                <table>
-                                  <thead>
-                                    <tr>
-                                      <th>Doctor Name</th>
-                                      <th style="text-align: center;">Visits</th>
-                                      <th style="text-align: center;">Dr Fees</th>
-                                      <th style="text-align: center;">Medicine</th>
-                                      <th style="text-align: center;">Lab Cash</th>
-                                      <th style="text-align: center;">Lab Profit</th>
-                                      <th style="text-align: center;">Total</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    ${monthlyData.map(d => `
-                                      <tr>
-                                        <td>${d.doctorName}</td>
-                                        <td style="text-align: center;">${d.count}</td>
-                                        <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
-                                        <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
-                                        <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
-                                        <td style="text-align: center;">₹${d.labProfit.toLocaleString()}</td>
-                                        <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
-                                      </tr>
-                                    `).join('')}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr class="total-row">
-                                      <td>MONTHLY TOTAL</td>
-                                      <td style="text-align: center;">${monthlyData.reduce((s, d) => s + d.count, 0)}</td>
-                                      <td style="text-align: center;">₹${grandTotalDr.toLocaleString()}</td>
-                                      <td style="text-align: center;">₹${grandTotalMed.toLocaleString()}</td>
-                                      <td style="text-align: center;">₹${grandTotalLab.toLocaleString()}</td>
-                                      <td style="text-align: center;">₹${grandTotalLabProfit.toLocaleString()}</td>
-                                      <td style="text-align: center; color: #b91c1c;">₹${(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
-                                <div class="footer">
-                                  <div class="sig">Prepared By</div>
-                                  <div class="sig">Authorized Signature</div>
-                                </div>
-                              </body>
-                            </html>
-                          `;
-                        printWindow.document.write(reportHtml);
-                        printWindow.document.close();
-                        setTimeout(() => {
-                          printWindow.print();
-                        }, 500);
-                      }}
-                      className="excel-add-btn"
-                      style={{ background: '#6366f1' }}
-                    >
-                      🖨️ Print Monthly Report
-                    </button>
-                  </div>
+          {activeTab === 'monthly' && (
+            <div className="grid-container">
+              {/* Lab Profit Save Toast Notification */}
+              {labProfitToast && (
+                <div style={{
+                  position: 'fixed', top: '20px', right: '20px', zIndex: 9999,
+                  padding: '14px 20px', borderRadius: '10px', minWidth: '320px',
+                  background: labProfitToast.type === 'success' ? '#f0fdf4' : '#fef2f2',
+                  border: `1px solid ${labProfitToast.type === 'success' ? '#86efac' : '#fca5a5'}`,
+                  color: labProfitToast.type === 'success' ? '#166534' : '#991b1b',
+                  fontWeight: 700, fontSize: '0.9rem', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  animation: 'slideInRight 0.3s ease'
+                }}>
+                  {labProfitToast.message}
+                  <button onClick={() => setLabProfitToast(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: 'inherit', fontWeight: 900 }}>×</button>
                 </div>
+              )}
+              <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap', padding: '15px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', display: 'block', marginBottom: '5px' }}>SELECT MONTH:</label>
+                  <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', outline: 'none' }}
+                  />
+                </div>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={async () => {
+                      const tempDiv = document.createElement('div');
+                      tempDiv.innerHTML = `
+                        <div style="padding: 40px; font-family: sans-serif; color: #334155;">
+                          <h1 style="text-align: center; margin-bottom: 5px; color: #1e293b;">${clinicSettings.name}</h1>
+                          <h2 style="text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; text-transform: uppercase;">MONTHLY COLLECTION REPORT: ${new Date(monthlyReportData.year, monthlyReportData.month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+                          <table style="width: 100%; border-collapse: collapse; margin-top: 30px;">
+                            <thead>
+                              <tr>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: left; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Doctor Name</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Visits</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Profit</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${monthlyReportData.rows.map(d => `
+                                <tr>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">${d.doctorName}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.count}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labProfit.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
+                                </tr>
+                              `).join('')}
+                            </tbody>
+                            <tfoot>
+                              <tr style="font-weight: bold; background: #f1f5f9;">
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: left;">MONTHLY TOTAL</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                          <div style="margin-top: 50px; display: flex; justify-content: space-between;">
+                            <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Prepared By</div>
+                            <div style="border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px;">Authorized Signature</div>
+                          </div>
+                        </div>
+                      `;
 
-                <div style={{ overflowX: 'auto', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-                  <table className="excel-table">
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                        <th style={{ padding: '15px', textAlign: 'left' }}>Doctor Name</th>
-                        <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
-                        <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px', color: '#0891b2' }}>Lab Profit (₹)</th>
-                        <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody style={{ fontSize: '0.9rem' }}>
-                      {monthlyData.map((d, idx) => (
-                        <tr key={idx} style={{
-                          background: idx % 2 === 0 ? '#fff' : '#fcfcfc',
-                          transition: 'all 0.2s',
-                          borderBottom: '1px solid #f1f5f9'
-                        }}>
-                          <td style={{ padding: '15px', color: '#1e293b', fontWeight: 600 }}>{d.doctorName}</td>
-                          <td style={{ textAlign: 'center', padding: '15px', color: '#475569', fontWeight: 700 }}>{d.count || '-'}</td>
-                          <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
-                          <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
-                          <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
-                          <td style={{ textAlign: 'center', padding: '15px' }}>
-                            {(() => {
-                              const profitKey = `${selectedMonth}-${d.doctorName}`;
-                              const saveStatus = labProfitSaveStatus[profitKey];
-                              const storedVal = monthlyLabProfits[profitKey];
-                              const displayVal = storedVal !== undefined ? storedVal : '';
-                              return (
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <input
-                                      type="number"
-                                      placeholder="0"
-                                      value={displayVal}
-                                      onChange={(e) => setMonthlyLabProfits(prev => ({
-                                        ...prev,
-                                        [profitKey]: e.target.value === '' ? '' : parseFloat(e.target.value)
-                                      }))}
-                                      onBlur={(e) => {
-                                        const currentVal = monthlyLabProfits[profitKey];
-                                        if (currentVal !== undefined && currentVal !== '') {
-                                          handleSaveLabProfit(profitKey, d.doctorName, currentVal);
-                                        }
-                                      }}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0);
-                                          e.target.blur();
-                                        }
-                                      }}
-                                      style={{
-                                        width: '80px',
-                                        padding: '6px',
-                                        borderRadius: '4px',
-                                        border: saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #cbd5e1',
-                                        textAlign: 'center',
-                                        fontSize: '0.85rem',
-                                        fontWeight: 700,
-                                        color: '#0891b2',
-                                        outline: 'none',
-                                        background: saveStatus === 'saved' ? '#f0fdf4' : 'white'
-                                      }}
-                                    />
-                                    <button
-                                      onClick={() => handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0)}
-                                      disabled={saveStatus === 'saving'}
-                                      style={{
-                                        padding: '5px 8px',
-                                        background: saveStatus === 'saved' ? '#10b981' : saveStatus === 'error' ? '#ef4444' : '#0891b2',
-                                        color: 'white',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
-                                        fontSize: '0.75rem',
-                                        fontWeight: 700,
-                                        minWidth: '44px',
-                                        transition: 'background 0.2s'
-                                      }}
-                                      title="Save Lab Profit"
-                                    >
-                                      {saveStatus === 'saving' ? '...' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '✗' : '💾'}
-                                    </button>
-                                  </div>
-                                  {saveStatus === 'saved' && (
-                                    <span style={{ fontSize: '0.65rem', color: '#10b981', fontWeight: 700 }}>Saved!</span>
-                                  )}
-                                  {saveStatus === 'error' && (
-                                    <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>Save failed!</span>
-                                  )}
-                                </div>
-                              );
-                            })()}
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '15px', color: '#be123c', fontWeight: 900 }}>{d.total ? `₹${d.total.toLocaleString()}` : '-'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#1e293b', color: 'white', fontWeight: 800 }}>
-                        <td style={{ padding: '20px 15px' }}>MONTHLY SUMMARY</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyData.reduce((s, d) => s + d.count, 0)}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{grandTotalDr.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{grandTotalMed.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{grandTotalLab.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', color: '#22d3ee' }}>₹{grandTotalLabProfit.toLocaleString()}</td>
-                        <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(grandTotalDr + grandTotalMed + grandTotalLab + grandTotalLabProfit).toLocaleString()}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                      const opt = {
+                        margin: 10,
+                        filename: `Monthly_Report_${selectedMonth}.pdf`,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2 },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                      };
+
+                      try {
+                        setIsSyncing(true);
+                        const worker = window.html2pdf().set(opt).from(tempDiv);
+                        const pdfBlob = await worker.output('blob');
+                        const pdfFile = new File([pdfBlob], opt.filename, { type: 'application/pdf' });
+
+                        if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                          await navigator.share({
+                            files: [pdfFile],
+                            title: `Monthly Report - ${selectedMonth}`
+                          });
+                        } else {
+                          await worker.save();
+                        }
+                      } catch (err) {
+                        console.error('Share failed:', err);
+                        alert('Failed to share PDF');
+                      } finally {
+                        setIsSyncing(false);
+                      }
+                    }}
+                    className="excel-add-btn"
+                    style={{ background: '#10b981' }}
+                  >
+                    ✉️ Share Monthly Report
+                  </button>
+                  <button
+                    onClick={() => {
+                      const printWindow = window.open('', '_blank');
+                      const reportHtml = `
+                          <html>
+                            <head>
+                              <title>Monthly Collection Report - ${selectedMonth}</title>
+                              <style>
+                                body { font-family: sans-serif; padding: 40px; color: #334155; }
+                                table { width: 100%; border-collapse: collapse; margin-top: 30px; }
+                                th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+                                th { background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+                                .total-row { font-weight: bold; background: #f1f5f9; }
+                                h1 { text-align: center; margin-bottom: 5px; color: #1e293b; }
+                                h2 { text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; }
+                                .footer { margin-top: 50px; display: flex; justify-content: space-between; }
+                                .sig { border-top: 1px solid #334155; width: 200px; text-align: center; padding-top: 10px; }
+                              </style>
+                            </head>
+                            <body>
+                              <h1>${clinicSettings.name}</h1>
+                              <h2>MONTHLY COLLECTION REPORT: ${new Date(monthlyReportData.year, monthlyReportData.month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Doctor Name</th>
+                                    <th style="text-align: center;">Visits</th>
+                                    <th style="text-align: center;">Dr Fees</th>
+                                    <th style="text-align: center;">Medicine</th>
+                                    <th style="text-align: center;">Lab Cash</th>
+                                    <th style="text-align: center;">Lab Profit</th>
+                                    <th style="text-align: center;">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  ${monthlyReportData.rows.map(d => `
+                                    <tr>
+                                      <td>${d.doctorName}</td>
+                                      <td style="text-align: center;">${d.count}</td>
+                                      <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                      <td style="text-align: center;">₹${d.labProfit.toLocaleString()}</td>
+                                      <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
+                                    </tr>
+                                  `).join('')}
+                                </tbody>
+                                <tfoot>
+                                  <tr class="total-row">
+                                    <td>MONTHLY TOTAL</td>
+                                    <td style="text-align: center;">${monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
+                                    <td style="text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                              <div class="footer">
+                                <div class="sig">Prepared By</div>
+                                <div class="sig">Authorized Signature</div>
+                              </div>
+                            </body>
+                          </html>
+                        `;
+                      printWindow.document.write(reportHtml);
+                      printWindow.document.close();
+                      setTimeout(() => {
+                        printWindow.print();
+                      }, 500);
+                    }}
+                    className="excel-add-btn"
+                    style={{ background: '#6366f1' }}
+                  >
+                    🖨️ Print Monthly Report
+                  </button>
                 </div>
               </div>
-            );
-          })()}
+
+              <div style={{ overflowX: 'auto', background: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                <table className="excel-table">
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '15px', textAlign: 'left' }}>Doctor Name</th>
+                      <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#0891b2' }}>Lab Profit (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody style={{ fontSize: '0.9rem' }}>
+                    {monthlyReportData.rows.map((d, idx) => (
+                      <tr key={idx} style={{
+                        background: idx % 2 === 0 ? '#fff' : '#fcfcfc',
+                        transition: 'all 0.2s',
+                        borderBottom: '1px solid #f1f5f9'
+                      }}>
+                        <td style={{ padding: '15px', color: '#1e293b', fontWeight: 600 }}>{d.doctorName}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#475569', fontWeight: 700 }}>{d.count || '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px' }}>
+                          {(() => {
+                            const profitKey = `${selectedMonth}-${d.doctorName}`;
+                            const saveStatus = labProfitSaveStatus[profitKey];
+                            const storedVal = monthlyLabProfits[profitKey];
+                            const displayVal = storedVal !== undefined ? storedVal : '';
+                            return (
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <input
+                                    type="number"
+                                    placeholder="0"
+                                    value={displayVal}
+                                    onChange={(e) => setMonthlyLabProfits(prev => ({
+                                      ...prev,
+                                      [profitKey]: e.target.value === '' ? '' : parseFloat(e.target.value)
+                                    }))}
+                                    onBlur={() => {
+                                      const currentVal = monthlyLabProfits[profitKey];
+                                      if (currentVal !== undefined && currentVal !== '') {
+                                        handleSaveLabProfit(profitKey, d.doctorName, currentVal);
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0);
+                                        e.target.blur();
+                                      }
+                                    }}
+                                    style={{
+                                      width: '80px',
+                                      padding: '6px',
+                                      borderRadius: '4px',
+                                      border: saveStatus === 'error' ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                                      textAlign: 'center',
+                                      fontSize: '0.85rem',
+                                      fontWeight: 700,
+                                      color: '#0891b2',
+                                      outline: 'none',
+                                      background: saveStatus === 'saved' ? '#f0fdf4' : 'white'
+                                    }}
+                                  />
+                                  <button
+                                    onClick={() => handleSaveLabProfit(profitKey, d.doctorName, monthlyLabProfits[profitKey] || 0)}
+                                    disabled={saveStatus === 'saving'}
+                                    style={{
+                                      padding: '5px 8px',
+                                      background: saveStatus === 'saved' ? '#10b981' : saveStatus === 'error' ? '#ef4444' : '#0891b2',
+                                      color: 'white',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 700,
+                                      minWidth: '44px',
+                                      transition: 'background 0.2s'
+                                    }}
+                                    title="Save Lab Profit"
+                                  >
+                                    {saveStatus === 'saving' ? '...' : saveStatus === 'saved' ? '✓' : saveStatus === 'error' ? '✗' : '💾'}
+                                  </button>
+                                </div>
+                                {saveStatus === 'saved' && (
+                                  <span style={{ fontSize: '0.65rem', color: '#10b981', fontWeight: 700 }}>Saved!</span>
+                                )}
+                                {saveStatus === 'error' && (
+                                  <span style={{ fontSize: '0.65rem', color: '#ef4444', fontWeight: 700 }}>Save failed!</span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#be123c', fontWeight: 900 }}>{d.total ? `₹${d.total.toLocaleString()}` : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#1e293b', color: 'white', fontWeight: 800 }}>
+                      <td style={{ padding: '20px 15px' }}>MONTHLY SUMMARY</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{monthlyReportData.grandTotalDr.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{monthlyReportData.grandTotalMed.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#22d3ee' }}>₹{monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {activeTab === 'settings' && (
             <div className="settings-excel">
@@ -2213,7 +2191,7 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
           )}
         </div>
-      </main >
+      </main>
 
       {/* ── Prescription History Modal ── */}
       {
@@ -2760,15 +2738,6 @@ const AdminDashboard = ({ onLogout }) => {
                       </span>
                     )}
                   </div>
-                  <div className="form-field">
-                    <label>Place / Area</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Tiruvarur, Tanjore"
-                      value={newPatient.place}
-                      onChange={(e) => setNewPatient({ ...newPatient, place: e.target.value })}
-                    />
-                  </div>
 
                   <div className="form-divider full-width">Vitals & Physical Metrics</div>
 
@@ -2902,15 +2871,6 @@ const AdminDashboard = ({ onLogout }) => {
                       placeholder="Mobile or Landline Number..."
                       value={editingPatient.phone}
                       onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-field">
-                    <label>Place / Area</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Tiruvarur"
-                      value={editingPatient.place}
-                      onChange={(e) => setEditingPatient({ ...editingPatient, place: e.target.value })}
                     />
                   </div>
 

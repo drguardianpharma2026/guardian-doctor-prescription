@@ -407,7 +407,6 @@ const StaffDashboard = () => {
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>AGE</th>
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>SEX</th>
                                         <th style={{ textAlign: 'left', padding: '6px 12px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>PHONE</th>
-                                        <th style={{ textAlign: 'left', padding: '6px 12px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>PLACE</th>
                                         <th style={{ textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>ATTENDING DOCTOR</th>
 
                                         <th style={{ width: 60, textAlign: 'center', padding: '6px 8px', fontSize: '0.65rem', color: '#64748b', fontWeight: 900 }}>VISITS</th>
@@ -431,7 +430,6 @@ const StaffDashboard = () => {
                                                 <td style={{ textAlign: 'center', color: '#64748b', padding: '6px 8px', fontSize: '0.75rem' }}>{p.age}</td>
                                                 <td style={{ textAlign: 'center', color: '#64748b', padding: '6px 8px', fontSize: '0.75rem' }}>{p.sex}</td>
                                                 <td style={{ color: '#64748b', fontSize: '0.75rem', padding: '6px 12px' }}>{p.phone}</td>
-                                                <td style={{ color: '#64748b', fontSize: '0.75rem', padding: '6px 12px', fontWeight: 600 }}>{p.place || '—'}</td>
                                                 <td style={{ textAlign: 'center', padding: '6px 8px', minWidth: '150px' }}>
                                                     {(p.doctor_name && p.doctor_name !== 'Unassigned') ? (
                                                         <div
@@ -501,7 +499,6 @@ const StaffDashboard = () => {
                                         <th>Age</th>
                                         <th>Sex</th>
                                         <th>Phone</th>
-                                        <th>Place</th>
                                         <th>Date</th>
                                         <th style={{ textAlign: 'center' }}>Weight</th>
                                         <th style={{ textAlign: 'center' }}>BP</th>
@@ -519,7 +516,6 @@ const StaffDashboard = () => {
                                             <td>{p.age}</td>
                                             <td>{p.sex}</td>
                                             <td>{p.phone}</td>
-                                            <td style={{ fontWeight: 600, color: '#64748b' }}>{p.place || '—'}</td>
                                             <td style={{ fontSize: '0.75rem', color: '#64748b' }}>{p.registration_date ? p.registration_date.replace(' ', '\n') : '---'}</td>
                                             <td style={{ textAlign: 'center' }}>{p.last_weight}</td>
                                             <td style={{ textAlign: 'center' }}>{p.last_bp}</td>
@@ -637,15 +633,6 @@ const StaffDashboard = () => {
                                         placeholder="Enter Phone Number..."
                                         value={newPatient.phone}
                                         onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-field">
-                                    <label>Place / Area</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Village or Town"
-                                        value={newPatient.place || ''}
-                                        onChange={(e) => setNewPatient({ ...newPatient, place: e.target.value })}
                                     />
                                 </div>
 
@@ -789,10 +776,6 @@ const StaffDashboard = () => {
                                 <div className="form-field">
                                     <label>Phone</label>
                                     <input value={editingPatient.phone} onChange={e => setEditingPatient({ ...editingPatient, phone: e.target.value })} />
-                                </div>
-                                <div className="form-field">
-                                    <label>Place / Area</label>
-                                    <input value={editingPatient.place || ''} onChange={e => setEditingPatient({ ...editingPatient, place: e.target.value })} />
                                 </div>
 
                                 <div className="form-divider">Vitals & Physical Metrics</div>

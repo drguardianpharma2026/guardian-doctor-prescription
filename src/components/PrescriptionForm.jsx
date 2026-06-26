@@ -719,10 +719,6 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           <Label>Phone Number</Label>
           <input type="text" value={data.phone} onChange={(e) => updateField('phone', e.target.value)} placeholder="Mobile Number" />
         </div>
-        <div>
-          <Label>Place / Area</Label>
-          <input type="text" value={data.place || ''} onChange={(e) => updateField('place', e.target.value)} placeholder="e.g. Village" />
-        </div>
       </div>
 
       {/* Row 4: Vitals */}

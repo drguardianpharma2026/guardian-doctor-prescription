@@ -129,12 +129,6 @@ const PrescriptionPreview = ({ data }) => {
           </div>
         </div>
 
-        {/* Row 3 - Place */}
-        <div style={{ marginBottom: '4pt' }}>
-          <span style={{ fontStyle: 'italic', fontWeight: 600 }}>Place / Area</span>
-          <span style={{ margin: '0 4pt' }}>:</span>
-          <span style={{ fontWeight: 800, textTransform: 'uppercase' }}>{data.place || '------------------'}</span>
-        </div>
 
         {/* Row 3: Vitals Summary */}
         {(data.weight || data.bp || data.pulse || data.temp) && (

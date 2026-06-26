@@ -304,7 +304,7 @@ export default function TodayOP() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', fontSize: '0.83rem' }}>
                         <thead>
                             <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Place', 'Visits', 'Actions'].map(h => (
+                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Visits', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.74rem', letterSpacing: 0.3, color: 'white' }}>{h}</th>
                                 ))}
                             </tr>
@@ -339,7 +339,6 @@ export default function TodayOP() {
                                         <td style={{ padding: '8px 10px' }}>{p.age || '—'}</td>
                                         <td style={{ padding: '8px 10px' }}>{p.sex || '—'}</td>
                                         <td style={{ padding: '8px 10px' }}>{p.phone || '—'}</td>
-                                        <td style={{ padding: '8px 10px', fontWeight: 600, color: '#64748b' }}>{p.place || '—'}</td>
                                         <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                             {(() => {
                                                 const historyRxs = prescriptions.filter(rx => {
