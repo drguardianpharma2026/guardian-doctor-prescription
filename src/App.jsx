@@ -16,6 +16,14 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem('is_admin_v2') === 'true')
   const [isUserAuthenticated, setIsUserAuthenticated] = useState(() => localStorage.getItem('is_user_authenticated') === 'true')
 
+  // Immutable session doctor — captured at login, never overwritten by another doctor logging in
+  const [sessionDoctor, setSessionDoctor] = useState(() => {
+    try {
+      const sd = localStorage.getItem('session_doctor');
+      return sd ? JSON.parse(sd) : null;
+    } catch { return null; }
+  })
+
   // Load clinic settings
   const [clinicSettings, setClinicSettings] = useState({
     name: 'THULIR MULTISPECIALITY HOSPITAL',
@@ -82,14 +90,19 @@ function App() {
 
         if (finalDoctors.length > 0) {
           setSavedDoctors(finalDoctors);
-          // Set initial doctor if not set
-          setData(prev => ({
-            ...prev,
-            doctorName: finalDoctors[0].name,
-            doctorQualifications: finalDoctors[0].qualifications,
-            doctorRole: finalDoctors[0].role,
-            doctorRegNo: finalDoctors[0].regNo || ''
-          }));
+          // Only set doctor from DB list if there is no active session doctor
+          const currentSession = (() => {
+            try { const sd = localStorage.getItem('session_doctor'); return sd ? JSON.parse(sd) : null; } catch { return null; }
+          })();
+          if (!currentSession) {
+            setData(prev => ({
+              ...prev,
+              doctorName: finalDoctors[0].name,
+              doctorQualifications: finalDoctors[0].qualifications,
+              doctorRole: finalDoctors[0].role,
+              doctorRegNo: finalDoctors[0].regNo || ''
+            }));
+          }
         }
 
 
@@ -189,21 +202,34 @@ function App() {
   useEffect(() => {
     localStorage.setItem('is_user_authenticated', isUserAuthenticated)
 
-    // Auto-fill doctor info from logged-in account
+    // Capture session doctor at login — this is the immutable source of truth for this session
     if (isUserAuthenticated) {
       const loggedUser = localStorage.getItem('logged_in_user')
       if (loggedUser) {
         const user = JSON.parse(loggedUser)
 
+        // Build the canonical session doctor object from the fresh login data
+        const doctor = {
+          name: user.name || '',
+          qualifications: user.qualification || '',
+          role: user.consultant || '',
+          regNo: user.reg_no || user.regNo || ''
+        };
+
+        // Persist this doctor to a dedicated session key so it survives re-renders
+        localStorage.setItem('session_doctor', JSON.stringify(doctor));
+        setSessionDoctor(doctor);
+
+        // Apply this doctor to the prescription form immediately
         setData(prev => ({
           ...prev,
-          doctorName: user.name || prev.doctorName,
-          doctorQualifications: user.qualification || prev.doctorQualifications,
-          doctorRole: user.consultant || prev.doctorRole,
-          doctorRegNo: user.reg_no || user.regNo || prev.doctorRegNo
+          doctorName: doctor.name,
+          doctorQualifications: doctor.qualifications,
+          doctorRole: doctor.role,
+          doctorRegNo: doctor.regNo
         }))
 
-        // Ensure logged in doctor is in the list
+        // Ensure logged-in doctor is in the saved list
         setSavedDoctors(prev => {
           if (prev.find(doc => doc.name === user.name)) return prev
           const newDoc = {
@@ -212,7 +238,6 @@ function App() {
             role: user.consultant || '',
             reg_no: user.reg_no || user.regNo || ''
           };
-          // Also save this doctor to DB so it persists
           databaseService.saveDoctor(newDoc).catch(console.error);
           return [newDoc, ...prev]
         })
@@ -229,8 +254,10 @@ function App() {
   const handleUserLogin = (status) => setIsUserAuthenticated(status)
   const handleUserLogout = () => {
     setIsUserAuthenticated(false)
+    setSessionDoctor(null)
     localStorage.removeItem('is_user_authenticated')
     localStorage.removeItem('logged_in_user')
+    localStorage.removeItem('session_doctor')
   }
 
   const handleDoctorSelect = (doctor) => {
@@ -276,7 +303,25 @@ function App() {
         const hasClinicalContent = data.diagnosis?.trim() || data.complaints?.trim() || hasMedicines;
 
         if (hasClinicalContent) {
-          const savedRx = await databaseService.savePrescription({ ...data, id: data.rxId });
+          // ── SESSION DOCTOR LOCK ──
+          // Always read the session doctor fresh from localStorage at save-time.
+          // This guarantees that even if the form fields were edited or another
+          // polling cycle overwrote state, the DB record always stores the
+          // credentials of the doctor who is actually logged in to this session.
+          const activeSession = (() => {
+            try { const sd = localStorage.getItem('session_doctor'); return sd ? JSON.parse(sd) : null; } catch { return null; }
+          })();
+          const savePayload = {
+            ...data,
+            id: data.rxId,
+            ...(activeSession ? {
+              doctorName: activeSession.name,
+              doctorQualifications: activeSession.qualifications,
+              doctorRole: activeSession.role,
+              doctorRegNo: activeSession.regNo
+            } : {})
+          };
+          const savedRx = await databaseService.savePrescription(savePayload);
 
           // CRITICAL: Update the rxId in state so subsequent saves/prints update this record
           if (savedRx && savedRx.id) {
@@ -513,6 +558,11 @@ function App() {
                                     let vitals = {};
                                     try { vitals = JSON.parse(rx.vitals || '{}'); } catch (e) { }
 
+                                    // Resolve the session doctor — always prefer the active session
+                                    const activeSession = (() => {
+                                      try { const sd = localStorage.getItem('session_doctor'); return sd ? JSON.parse(sd) : null; } catch { return null; }
+                                    })();
+
                                     fullData = {
                                       ...fullData,
                                       complaints: rx.complaints || '',
@@ -520,8 +570,11 @@ function App() {
                                       medicines: meds.length > 0 ? meds : fullData.medicines,
                                       advice: rx.advice || '',
                                       followUp: rx.follow_up || '',
-                                      doctorName: rx.doctor_name || fullData.doctorName,
-                                      doctorRegNo: rx.doctor_reg_no || fullData.doctorRegNo,
+                                      // Always use the session doctor — never let a saved rx overwrite the logged-in doctor
+                                      doctorName: activeSession ? activeSession.name : (fullData.doctorName || rx.doctor_name || ''),
+                                      doctorQualifications: activeSession ? activeSession.qualifications : fullData.doctorQualifications,
+                                      doctorRole: activeSession ? activeSession.role : fullData.doctorRole,
+                                      doctorRegNo: activeSession ? activeSession.regNo : (fullData.doctorRegNo || rx.doctor_reg_no || ''),
                                       visitNo: rx.visit_no || fullData.visitNo,
                                       weight: vitals.weight || fullData.weight,
                                       bp: vitals.bp || fullData.bp,
@@ -610,6 +663,7 @@ function App() {
                     onSaveDoctor={handleSaveDoctor}
                     onDeleteDoctor={handleDeleteDoctor}
                     onSave={() => handleAutoSave(true)}
+                    sessionDoctor={sessionDoctor}
                   />
                 </section>
 

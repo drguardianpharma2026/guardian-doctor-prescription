@@ -109,7 +109,9 @@ const Label = ({ children }) => (
   </label>
 );
 
-const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor, onSave }) => {
+const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], onDoctorSelect, onSaveDoctor, onDeleteDoctor, onSave, sessionDoctor }) => {
+  const isDoctorLocked = !!sessionDoctor;
+
   const [showDoctorDropdown, setShowDoctorDropdown] = React.useState(false);
   const [patientHistory, setPatientHistory] = React.useState([]);
   const [activeHistoryIndex, setActiveHistoryIndex] = React.useState(0);
@@ -505,53 +507,64 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
           title="Doctor Setup"
           icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>}
         />
-        <div style={{ position: 'relative' }}>
-          <button
-            onClick={() => setShowDoctorDropdown(!showDoctorDropdown)}
-            style={{
-              background: 'white', border: '1px solid var(--border)', padding: '0.45rem 0.875rem',
-              borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, display: 'flex',
-              alignItems: 'center', gap: '0.4rem', cursor: 'pointer', color: 'var(--text)'
-            }}
-          >
-            Saved
-            <svg style={{ transform: showDoctorDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
+        {isDoctorLocked ? (
+          <span style={{
+            fontSize: '0.72rem', fontWeight: 700, color: '#0d9488',
+            background: '#f0fdfa', border: '1px solid #99f6e4',
+            borderRadius: '20px', padding: '3px 10px',
+            display: 'flex', alignItems: 'center', gap: '4px'
+          }}>🔒 Session Locked</span>
+        ) : (
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowDoctorDropdown(!showDoctorDropdown)}
+              style={{
+                background: 'white', border: '1px solid var(--border)', padding: '0.45rem 0.875rem',
+                borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, display: 'flex',
+                alignItems: 'center', gap: '0.4rem', cursor: 'pointer', color: 'var(--text)'
+              }}
+            >
+              Saved
+              <svg style={{ transform: showDoctorDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+                width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
 
-          {showDoctorDropdown && (
-            <>
-              <div onClick={() => setShowDoctorDropdown(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} />
-              <div style={{
-                position: 'absolute', top: '100%', right: 0, marginTop: '0.4rem',
-                width: '260px', background: 'white', border: '1px solid var(--border)',
-                borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.12)', zIndex: 101, overflow: 'hidden'
-              }}>
-                {savedDoctors.length === 0
-                  ? <p style={{ padding: '1rem', fontSize: '0.85rem', color: 'var(--secondary)', textAlign: 'center' }}>No saved doctors</p>
-                  : savedDoctors.map((doc, idx) => (
-                    <DoctorItem key={idx} doc={doc} isLast={idx === savedDoctors.length - 1}
-                      onSelect={(d) => { onDoctorSelect(d); setShowDoctorDropdown(false); }}
-                      onDelete={onDeleteDoctor}
-                    />
-                  ))
-                }
-              </div>
-            </>
-          )}
-        </div>
+            {showDoctorDropdown && (
+              <>
+                <div onClick={() => setShowDoctorDropdown(false)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }} />
+                <div style={{
+                  position: 'absolute', top: '100%', right: 0, marginTop: '0.4rem',
+                  width: '260px', background: 'white', border: '1px solid var(--border)',
+                  borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.12)', zIndex: 101, overflow: 'hidden'
+                }}>
+                  {savedDoctors.length === 0
+                    ? <p style={{ padding: '1rem', fontSize: '0.85rem', color: 'var(--secondary)', textAlign: 'center' }}>No saved doctors</p>
+                    : savedDoctors.map((doc, idx) => (
+                      <DoctorItem key={idx} doc={doc} isLast={idx === savedDoctors.length - 1}
+                        onSelect={(d) => { onDoctorSelect(d); setShowDoctorDropdown(false); }}
+                        onDelete={onDeleteDoctor}
+                      />
+                    ))
+                  }
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="form-grid-2col">
+      <div className="form-grid-2col" style={isDoctorLocked ? { background: '#f0fdfa', borderRadius: '10px', padding: '0.75rem', border: '1px solid #99f6e4' } : {}}>
         <div>
           <Label>Doctor Name</Label>
           <input
             type="text"
             value={data.doctorName}
-            onChange={(e) => updateField('doctorName', e.target.value)}
+            onChange={(e) => !isDoctorLocked && updateField('doctorName', e.target.value)}
+            readOnly={isDoctorLocked}
             onBlur={(e) => {
+              if (isDoctorLocked) return;
               let val = e.target.value.trim();
               if (val && !val.toUpperCase().startsWith('DR.')) {
                 if (val.toUpperCase().startsWith('DR ')) {
@@ -560,47 +573,66 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                   val = 'DR. ' + val;
                 }
               }
-              // Optional: auto-convert to uppercase to match the style in screenshot
               updateField('doctorName', val.toUpperCase());
             }}
             placeholder="Dr. Name"
+            style={isDoctorLocked ? { background: '#f0fdfa', cursor: 'default', fontWeight: 700 } : {}}
           />
         </div>
         <div>
           <Label>Qualifications</Label>
-          <input type="text" value={data.doctorQualifications} onChange={(e) => updateField('doctorQualifications', e.target.value)} placeholder="BDS., MDS." />
+          <input
+            type="text"
+            value={data.doctorQualifications}
+            onChange={(e) => !isDoctorLocked && updateField('doctorQualifications', e.target.value)}
+            readOnly={isDoctorLocked}
+            placeholder="BDS., MDS."
+            style={isDoctorLocked ? { background: '#f0fdfa', cursor: 'default' } : {}}
+          />
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
           <Label>Specialization / Role</Label>
-          <input type="text" value={data.doctorRole} onChange={(e) => updateField('doctorRole', e.target.value)} placeholder="Role description" />
+          <input
+            type="text"
+            value={data.doctorRole}
+            onChange={(e) => !isDoctorLocked && updateField('doctorRole', e.target.value)}
+            readOnly={isDoctorLocked}
+            placeholder="Role description"
+            style={isDoctorLocked ? { background: '#f0fdfa', cursor: 'default' } : {}}
+          />
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
           <Label>Registration Number (Reg No)</Label>
           <input
             type="text"
             value={data.doctorRegNo || ''}
-            onChange={(e) => updateField('doctorRegNo', e.target.value)}
+            onChange={(e) => !isDoctorLocked && updateField('doctorRegNo', e.target.value)}
+            readOnly={isDoctorLocked}
             onBlur={(e) => {
+              if (isDoctorLocked) return;
               let val = e.target.value.trim();
               if (val && /^\d+$/.test(val)) {
                 updateField('doctorRegNo', `Reg No - ${val}`);
               }
             }}
             placeholder="Reg No - 93179"
+            style={isDoctorLocked ? { background: '#f0fdfa', cursor: 'default' } : {}}
           />
         </div>
       </div>
 
-      <button
-        onClick={handleSaveCurrent}
-        style={{
-          width: '100%', padding: '0.6rem', background: 'var(--primary-subtle)',
-          color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '8px',
-          fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', marginBottom: '0.5rem'
-        }}
-      >
-        💾 Save Doctor to List
-      </button>
+      {!isDoctorLocked && (
+        <button
+          onClick={handleSaveCurrent}
+          style={{
+            width: '100%', padding: '0.6rem', background: 'var(--primary-subtle)',
+            color: 'var(--primary)', border: '1px solid var(--primary)', borderRadius: '8px',
+            fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', marginBottom: '0.5rem'
+          }}
+        >
+          💾 Save Doctor to List
+        </button>
+      )}
 
       {divider}
 
