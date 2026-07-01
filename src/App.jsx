@@ -26,8 +26,8 @@ function App() {
 
   // Load clinic settings
   const [clinicSettings, setClinicSettings] = useState({
-    name: 'THULIR MULTISPECIALITY HOSPITAL',
-    phone: '04366 222108, 70949 19494, 70949 29494'
+    name: 'GUARDIAN PHARMACY',
+    phone: '9487469098'
   })
 
   // Load Admin Medicines for Autocomplete

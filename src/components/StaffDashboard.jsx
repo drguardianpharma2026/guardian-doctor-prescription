@@ -233,11 +233,18 @@ const StaffDashboard = () => {
         };
 
         const uniqueNames = Array.from(new Set([...base, ...uNames].map(formatName)))
-            .filter(name => name &&
-                !name.includes("MUHSIN") &&
-                name !== "DR. ALL DOCTORS" &&
-                name !== "ALL DOCTORS" &&
-                name !== "DR. UNASSIGNED");
+            .filter(name => {
+                const upper = (name || '').toUpperCase();
+                return name &&
+                    !name.includes("MUHSIN") &&
+                    name !== "DR. ALL DOCTORS" &&
+                    name !== "ALL DOCTORS" &&
+                    name !== "DR. UNASSIGNED" &&
+                    !upper.includes("ALICE SMITH") &&
+                    !upper.includes("G.PRAGADEESH") &&
+                    !upper.includes("G. PRAGADEESH") &&
+                    !upper.includes("G PRAGADEESH");
+            });
         return uniqueNames.sort();
     }, [users]);
 
@@ -345,6 +352,10 @@ const StaffDashboard = () => {
                             <>
                                 <button className="add-patient-btn" onClick={() => setIsPickPatientModalOpen(true)} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>+ Add Patient</button>
                                 <button onClick={refreshData} style={{ background: '#2563eb', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>🔄 Refresh</button>
+                                <button className="register-patient-btn" onClick={() => {
+                                    setNewPatient({ ...INITIAL_NEW_PATIENT, mrn: getNextAutomationMRN(patients) });
+                                    setIsRegisterModalOpen(true);
+                                }} style={{ background: '#10b981', color: 'white', border: 'none', padding: '8px 16px', borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>➕ Register Patient</button>
                             </>
                         ) : (
                             <button className="register-patient-btn" onClick={() => {
@@ -708,7 +719,7 @@ const StaffDashboard = () => {
                             <div className="form-field" style={{ marginBottom: 15 }}>
                                 <label>Search Patient</label>
                                 <input
-                                    placeholder="Search MRN or Name..."
+                                    placeholder="Search by name, MRN, or mobile..."
                                     value={pickPatientSearch}
                                     onChange={e => setPickPatientSearch(e.target.value)}
                                     style={{ width: '100%' }}
@@ -716,15 +727,21 @@ const StaffDashboard = () => {
                             </div>
                             <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, background: '#f8fafc' }}>
                                 {(() => {
-                                    const isNumericTerm = /^\d+$/.test(pickPatientSearch);
-                                    return patients.filter(p => !pickPatientSearch || p.name.toLowerCase().includes(pickPatientSearch.toLowerCase()) ||
-                                        (isNumericTerm ? String(p.mrn).trim() === pickPatientSearch.trim() : String(p.mrn).includes(pickPatientSearch)) ||
-                                        (pickPatientSearch.length >= 5 && p.phone?.includes(pickPatientSearch)));
+                                    const searchLower = pickPatientSearch.toLowerCase();
+                                    return patients.filter(p => {
+                                        if (!searchLower) return true;
+                                        return p.name?.toLowerCase().includes(searchLower) ||
+                                            String(p.mrn).toLowerCase().includes(searchLower) ||
+                                            (p.phone && String(p.phone).includes(searchLower));
+                                    });
                                 })().map(p => (
                                     <div key={p.mrn} style={{ padding: '12px 15px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
                                         <div>
                                             <div style={{ fontWeight: 800, color: '#1e293b', fontSize: '0.9rem' }}>{p.name}</div>
                                             <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>MRN: {p.mrn}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '2px' }}>
+                                                Age: {p.age || '—'} | Gender: {p.gender || p.sex || '—'} | Mob: {p.phone || '—'}
+                                            </div>
                                         </div>
                                         <button
                                             onClick={() => handleAssignDoctor(p.mrn, p.name, 'ALL DOCTORS')}

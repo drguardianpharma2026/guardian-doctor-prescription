@@ -265,6 +265,7 @@ export default function TodayOP() {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     {isSyncing && <span style={{ fontSize: '0.78rem', opacity: 0.7 }}>⏳ Loading...</span>}
                     <button onClick={handlePrint} style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}>🖨 Print List</button>
+                    <button onClick={() => navigate('/admin?tab=patients')} style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}>🏥 Patient Records</button>
                     <button onClick={() => navigate('/admin')} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>← Admin</button>
                 </div>
             </header>
@@ -281,6 +282,10 @@ export default function TodayOP() {
                         onChange={e => setSearchTerm(e.target.value)}
                         style={{ padding: '6px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: '0.85rem', width: 220, outline: 'none' }}
                     />
+                    <button
+                        onClick={() => navigate('/admin?tab=patients')}
+                        style={{ background: '#7c3aed', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >🏥 Patient Records</button>
                     <button
                         onClick={() => { setRegData({ ...EMPTY_PATIENT, mrn: getNextMRN(allPatients) }); setRegOpen(true) }}
                         style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
 
@@ -31,7 +31,21 @@ const getNextAutomationMRN = (existingPatients) => {
 };
 
 const AdminDashboard = ({ onLogout }) => {
-  const [activeTab, setActiveTab] = useState('todayop')
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tab') || 'todayop';
+  })
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && tab !== activeTab) {
+      setActiveTab(tab);
+    }
+  }, [location.search, activeTab]);
+
   const [medicines, setMedicines] = useState([])
   const [users, setUsers] = useState([])
   const [savedDoctors, setSavedDoctors] = useState([])
@@ -50,11 +64,10 @@ const AdminDashboard = ({ onLogout }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'))
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7)) // YYYY-MM
   const [clinicSettings, setClinicSettings] = useState({
-    name: 'THULIR MULTISPECIALITY HOSPITAL',
-    phone: '04366 222108, 70949 19494, 70949 29494'
+    name: 'GUARDIAN PHARMACY',
+    phone: '9487469098'
   })
   const [isSyncing, setIsSyncing] = useState(false)
-  const navigate = useNavigate()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false)
   const [newPatient, setNewPatient] = useState({
@@ -132,7 +145,7 @@ const AdminDashboard = ({ onLogout }) => {
 
   // --- Optimization: Memoized Monthly Report Data ---
   const monthlyReportData = React.useMemo(() => {
-    if (!selectedMonth) return { rows: [], grandTotalDr: 0, grandTotalMed: 0, grandTotalLab: 0, grandTotalLabProfit: 0, year: '', month: '' };
+    if (!selectedMonth) return { rows: [], grandTotalDr: 0, grandTotalMed: 0, grandTotalLab: 0, grandTotalLabGiven: 0, grandTotalLabProfit: 0, year: '', month: '' };
 
     const year = parseInt(selectedMonth.split('-')[0]);
     const month = parseInt(selectedMonth.split('-')[1]);
@@ -148,24 +161,27 @@ const AdminDashboard = ({ onLogout }) => {
       return `DR. ${clean}`;
     };
 
-    let grandTotalDr = 0, grandTotalMed = 0, grandTotalLab = 0, grandTotalLabProfit = 0;
+    let grandTotalDr = 0, grandTotalMed = 0, grandTotalLab = 0, grandTotalLabGiven = 0, grandTotalLabProfit = 0;
 
     monthRx.forEach(rx => {
       const dName = formatName(rx.doctor_name);
-      if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0 };
+      if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0, labGiven: 0 };
 
       const drVal = rx.dr_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0);
       const medVal = rx.med_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0);
       const labVal = rx.lab_cash?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0);
+      const labGivenVal = rx.lab_given?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_given) || 0);
 
       docGroups[dName].count++;
       docGroups[dName].dr += drVal;
       docGroups[dName].med += medVal;
       docGroups[dName].lab += labVal;
+      docGroups[dName].labGiven += labGivenVal;
 
       grandTotalDr += drVal;
       grandTotalMed += medVal;
       grandTotalLab += labVal;
+      grandTotalLabGiven += labGivenVal;
     });
 
     const rows = [];
@@ -183,12 +199,13 @@ const AdminDashboard = ({ onLogout }) => {
         drFees: g.dr,
         medFees: g.med,
         labCash: g.lab,
+        labGiven: g.labGiven,
         labProfit: labProfitValue,
-        total: g.dr + g.med + g.lab + labProfitValue
+        total: g.dr + g.med + g.lab + g.labGiven + labProfitValue
       });
     });
 
-    return { rows, grandTotalDr, grandTotalMed, grandTotalLab, grandTotalLabProfit, year, month };
+    return { rows, grandTotalDr, grandTotalMed, grandTotalLab, grandTotalLabGiven, grandTotalLabProfit, year, month };
   }, [allPrescriptions, selectedMonth, monthlyLabProfits]);
 
   // --- Granular Fetchers for Better Performance ---
@@ -300,8 +317,8 @@ const AdminDashboard = ({ onLogout }) => {
             const medFees = rx.med_fees || '';
             const labGiven = rx.lab_given || '';
             const labCash = rx.lab_cash || '';
-            const total = parseFee(drFees) + parseFee(medFees) + parseFee(labCash);
-            const allNil = [drFees, medFees, labCash].every(v => v?.toString().toLowerCase() === 'nil');
+            const total = parseFee(drFees) + parseFee(medFees) + parseFee(labGiven) + parseFee(labCash);
+            const allNil = [drFees, medFees, labGiven, labCash].every(v => v?.toString().toLowerCase() === 'nil');
             const rid = rx.id?.toString();
             initialFees[rid] = { drFees, medFees, labGiven, labCash, total: allNil ? 'Nil' : total };
           }
@@ -801,10 +818,11 @@ const AdminDashboard = ({ onLogout }) => {
       const parseFee = v => v?.toString().trim().toLowerCase() === 'nil' ? 0 : (parseFloat(v) || 0);
       const dr = updated.drFees;
       const med = updated.medFees;
+      const labGiven = updated.labGiven;
       const cash = updated.labCash;
 
-      const total = parseFee(dr) + parseFee(med) + parseFee(cash);
-      const allNil = [dr, med, cash].every(v => v?.toString().toLowerCase() === 'nil');
+      const total = parseFee(dr) + parseFee(med) + parseFee(labGiven) + parseFee(cash);
+      const allNil = [dr, med, labGiven, cash].every(v => v?.toString().toLowerCase() === 'nil');
 
       updated.total = allNil ? 'Nil' : total;
 
@@ -999,6 +1017,16 @@ const AdminDashboard = ({ onLogout }) => {
                   >
                     {isSyncing ? '⏳ Refreshing...' : '🔄 Refresh'}
                   </button>
+                  <button
+                    onClick={() => {
+                      const nextMRN = getNextAutomationMRN(patients);
+                      setNewPatient({ mrn: nextMRN, patientName: '', age: '', gender: '', phone: '', weight: '', bp: '', pulse: '', temp: '', date: new Date().toLocaleDateString('en-CA') });
+                      setIsRegisterModalOpen(true);
+                    }}
+                    style={{ background: '#10b981', color: 'white', border: 'none', padding: '6px 14px', borderRadius: 4, fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    ➕ Register Patient
+                  </button>
                 </div>
               )}
               {activeTab === 'medicines' && (
@@ -1129,11 +1157,18 @@ const AdminDashboard = ({ onLogout }) => {
 
                   const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
                   const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
-                    .filter(name => name &&
-                      !name.includes("MUHSIN") &&
-                      name !== "DR. ALL DOCTORS" &&
-                      name !== "ALL DOCTORS" &&
-                      name !== "DR. UNASSIGNED");
+                    .filter(name => {
+                      const upper = (name || '').toUpperCase();
+                      return name &&
+                        !name.includes("MUHSIN") &&
+                        name !== "DR. ALL DOCTORS" &&
+                        name !== "ALL DOCTORS" &&
+                        name !== "DR. UNASSIGNED" &&
+                        !upper.includes("ALICE SMITH") &&
+                        !upper.includes("G.PRAGADEESH") &&
+                        !upper.includes("G. PRAGADEESH") &&
+                        !upper.includes("G PRAGADEESH");
+                    });
 
                   return all.sort().map((docName, idx) => (
                     <button
@@ -1146,6 +1181,7 @@ const AdminDashboard = ({ onLogout }) => {
                         border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
                         whiteSpace: 'nowrap'
                       }}
+                      title={docName}
                     >{docName.toUpperCase()}</button>
                   ));
                 })()}
@@ -1225,11 +1261,18 @@ const AdminDashboard = ({ onLogout }) => {
                                     if (clean === 'UMA MAHESHWARAN' || clean === 'S. UMAMAHESWARAN') return 'DR. S. UMAMAHESWARAN';
                                     return `DR. ${clean}`;
                                   })
-                                  .filter(name => name &&
-                                    !name.includes("MUHSIN") &&
-                                    name !== "DR. ALL DOCTORS" &&
-                                    name !== "ALL DOCTORS" &&
-                                    name !== "DR. UNASSIGNED"))
+                                  .filter(name => {
+                                    const upper = (name || '').toUpperCase();
+                                    return name &&
+                                      !name.includes("MUHSIN") &&
+                                      name !== "DR. ALL DOCTORS" &&
+                                      name !== "ALL DOCTORS" &&
+                                      name !== "DR. UNASSIGNED" &&
+                                      !upper.includes("ALICE SMITH") &&
+                                      !upper.includes("G.PRAGADEESH") &&
+                                      !upper.includes("G. PRAGADEESH") &&
+                                      !upper.includes("G PRAGADEESH");
+                                  }))
                                   .filter((v, i, a) => a.indexOf(v) === i)
                                   .sort()
                                   .map((name, bIdx) => (
@@ -1245,55 +1288,57 @@ const AdminDashboard = ({ onLogout }) => {
                           </td>
 
                           {/* Fees Columns */}
-                          {(() => {
-                            const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
-                            const isNil = (v) => v?.toString().toLowerCase() === 'nil';
-                            return (
-                              <>
-                                <td style={{ padding: '0 4px' }}>
-                                  <input
-                                    placeholder="0"
-                                    value={fee.drFees}
-                                    onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
-                                    onBlur={() => handleSaveFees(entry)}
-                                    style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.drFees) ? '#94a3b8' : '#166534', background: '#f0fdf4', fontSize: '0.8rem' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '0 4px' }}>
-                                  <input
-                                    placeholder="0"
-                                    value={fee.medFees}
-                                    onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
-                                    onBlur={() => handleSaveFees(entry)}
-                                    style={{ border: '1px solid #e9d5ff', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce', background: '#faf5ff', fontSize: '0.8rem' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '0 4px' }}>
-                                  <input
-                                    placeholder="—"
-                                    value={fee.labGiven}
-                                    onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
-                                    onBlur={() => handleSaveFees(entry)}
-                                    style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8', background: '#eff6ff', fontSize: '0.8rem' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '0 4px' }}>
-                                  <input
-                                    placeholder="0"
-                                    value={fee.labCash}
-                                    onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
-                                    onBlur={() => handleSaveFees(entry)}
-                                    style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c', background: '#fff7ed', fontSize: '0.8rem' }}
-                                  />
-                                </td>
-                                <td style={{ padding: '0 4px' }}>
-                                  <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 900, textAlign: 'center', color: isNil(fee.total) ? '#ef4444' : '#be123c', fontSize: '1rem' }}>
-                                    {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
-                                  </div>
-                                </td>
-                              </>
-                            );
-                          })()}
+                          {
+                            (() => {
+                              const fee = opFees[entry.rxId?.toString()] || { drFees: '', medFees: '', labGiven: '', labCash: '', total: '' };
+                              const isNil = (v) => v?.toString().toLowerCase() === 'nil';
+                              return (
+                                <>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.drFees}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'drFees', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #bbf7d0', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.drFees) ? '#94a3b8' : '#166534', background: '#f0fdf4', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.medFees}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'medFees', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #e9d5ff', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.medFees) ? '#94a3b8' : '#7e22ce', background: '#faf5ff', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="—"
+                                      value={fee.labGiven}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'labGiven', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #bfdbfe', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labGiven) ? '#94a3b8' : '#1d4ed8', background: '#eff6ff', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <input
+                                      placeholder="0"
+                                      value={fee.labCash}
+                                      onChange={e => handleUpdateFee(entry.rxId, 'labCash', e.target.value)}
+                                      onBlur={() => handleSaveFees(entry)}
+                                      style={{ border: '1px solid #fed7aa', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 700, textAlign: 'center', color: isNil(fee.labCash) ? '#94a3b8' : '#c2410c', background: '#fff7ed', fontSize: '0.8rem' }}
+                                    />
+                                  </td>
+                                  <td style={{ padding: '0 4px' }}>
+                                    <div style={{ background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, padding: '4px 6px', width: '100%', fontWeight: 900, textAlign: 'center', color: isNil(fee.total) ? '#ef4444' : '#be123c', fontSize: '1rem' }}>
+                                      {fee.total === 'Nil' ? 'Nil' : (fee.total ? `₹${fee.total}` : '₹0')}
+                                    </div>
+                                  </td>
+                                </>
+                              );
+                            })()
+                          }
 
                           <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
                             <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
@@ -1409,7 +1454,16 @@ const AdminDashboard = ({ onLogout }) => {
                   };
                   const base = ["DR. PRAGADEESH", "DR. G.GOPINATH", "DR. G.VIGNESH", "DR. SWAMINATHAN", "DR. TEST"];
                   const all = Array.from(new Set([...base, ...uNames, ...sdNames, ...rxNames].map(formatName)))
-                    .filter(name => name && !name.includes("MUHSIN") && name !== "DR. ALL DOCTORS");
+                    .filter(name => {
+                      const upper = (name || '').toUpperCase();
+                      return name &&
+                        !name.includes("MUHSIN") &&
+                        name !== "DR. ALL DOCTORS" &&
+                        !upper.includes("ALICE SMITH") &&
+                        !upper.includes("G.PRAGADEESH") &&
+                        !upper.includes("G. PRAGADEESH") &&
+                        !upper.includes("G PRAGADEESH");
+                    });
 
                   return all.sort().map((docName, idx) => (
                     <button
@@ -1422,6 +1476,7 @@ const AdminDashboard = ({ onLogout }) => {
                         border: '1px solid ' + (selectedDoctor === docName ? '#2563eb' : '#cbd5e1'),
                         whiteSpace: 'nowrap'
                       }}
+                      title={docName}
                     >{docName.toUpperCase()}</button>
                   ));
                 })()}
@@ -1905,6 +1960,7 @@ const AdminDashboard = ({ onLogout }) => {
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Given</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Profit</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
                               </tr>
@@ -1917,6 +1973,7 @@ const AdminDashboard = ({ onLogout }) => {
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.labGiven ? '₹' + d.labGiven.toLocaleString() : '-'}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                 </tr>
@@ -1929,8 +1986,9 @@ const AdminDashboard = ({ onLogout }) => {
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                               </tr>
                             </tfoot>
                           </table>
@@ -2005,6 +2063,7 @@ const AdminDashboard = ({ onLogout }) => {
                                     <th style="text-align: center;">Dr Fees</th>
                                     <th style="text-align: center;">Medicine</th>
                                     <th style="text-align: center;">Lab Cash</th>
+                                    <th style="text-align: center;">Lab Given</th>
                                     <th style="text-align: center;">Lab Profit</th>
                                     <th style="text-align: center;">Total</th>
                                   </tr>
@@ -2017,6 +2076,7 @@ const AdminDashboard = ({ onLogout }) => {
                                       <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                      <td style="text-align: center;">${d.labGiven ? '₹' + d.labGiven.toLocaleString() : '-'}</td>
                                       <td style="text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                       <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                     </tr>
@@ -2029,8 +2089,9 @@ const AdminDashboard = ({ onLogout }) => {
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
-                                    <td style="text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                                    <td style="text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                                   </tr>
                                 </tfoot>
                               </table>
@@ -2064,6 +2125,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#2563eb' }}>Lab Given</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#0891b2' }}>Lab Profit (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
                     </tr>
@@ -2080,6 +2142,7 @@ const AdminDashboard = ({ onLogout }) => {
                         <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#2563eb', fontWeight: 700 }}>{d.labGiven ? `₹${d.labGiven.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px' }}>
                           {(() => {
                             const profitKey = `${selectedMonth}-${d.doctorName}`;
@@ -2163,8 +2226,9 @@ const AdminDashboard = ({ onLogout }) => {
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{monthlyReportData.grandTotalDr.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{monthlyReportData.grandTotalMed.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#93c5fd' }}>₹{monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#22d3ee' }}>₹{monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
-                      <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -2191,7 +2255,7 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
           )}
         </div>
-      </main>
+      </main >
 
       {/* ── Prescription History Modal ── */}
       {
@@ -2556,7 +2620,7 @@ const AdminDashboard = ({ onLogout }) => {
               <div style={{ padding: '15px', borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
                 <input
                   type="text"
-                  placeholder="Search by name or MRN..."
+                  placeholder="Search by name, MRN, or mobile..."
                   value={pickPatientSearch}
                   onChange={(e) => setPickPatientSearch(e.target.value)}
                   autoFocus
@@ -2565,12 +2629,12 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
               <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
                 {(() => {
-                  const isNumericTerm = /^\d+$/.test(pickPatientSearch);
+                  const searchLower = pickPatientSearch.toLowerCase();
                   return patients.filter(p => {
-                    const searchLower = pickPatientSearch.toLowerCase();
+                    if (!searchLower) return true;
                     return p.name?.toLowerCase().includes(searchLower) ||
-                      (isNumericTerm ? String(p.mrn).trim() === pickPatientSearch.trim() : String(p.mrn).toLowerCase().includes(searchLower)) ||
-                      (pickPatientSearch.length >= 5 && p.phone?.includes(pickPatientSearch));
+                      String(p.mrn).toLowerCase().includes(searchLower) ||
+                      (p.phone && String(p.phone).includes(searchLower));
                   });
                 })().map((p, idx) => {
                   const isAlreadyAdded = prescriptions.some(rx => String(rx.mrn).trim() === String(p.mrn).trim() && rx.date === selectedDate);
@@ -2579,6 +2643,9 @@ const AdminDashboard = ({ onLogout }) => {
                       <div>
                         <div style={{ fontWeight: 700, color: '#2563eb' }}>MRN: {p.mrn}</div>
                         <div style={{ fontSize: '0.9rem', color: '#1e293b', fontWeight: 600 }}>{p.name}</div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                          Age: {p.age || '—'} | Gender: {p.gender || p.sex || '—'} | Mob: {p.phone || '—'}
+                        </div>
                       </div>
                       <button
                         onClick={async (e) => {
