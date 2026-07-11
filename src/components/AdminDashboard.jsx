@@ -1204,6 +1204,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ width: 60 }}>Sex</th>
                       <th style={{ minWidth: 100 }}>Phone</th>
                       <th style={{ minWidth: 150 }}>Attending Doctor</th>
+                      <th style={{ width: 95, textAlign: 'center' }}>Print Status</th>
                       <th style={{ width: 90, color: '#16a34a', fontWeight: 800, textAlign: 'center' }}>Dr Fees (₹)</th>
                       <th style={{ width: 90, color: '#9333ea', fontWeight: 800, textAlign: 'center' }}>Medicine (₹)</th>
                       <th style={{ width: 90, color: '#2563eb', fontWeight: 800, textAlign: 'center' }}>Lab Given</th>
@@ -1285,6 +1286,21 @@ const AdminDashboard = ({ onLogout }) => {
                                   ))}
                               </div>
                             )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              background: entry.status === 'success' ? '#f0fdf4' : '#fffbeb',
+                              color: entry.status === 'success' ? '#166534' : '#b45309',
+                              border: `1px solid ${entry.status === 'success' ? '#bbf7d0' : '#fde68a'}`,
+                              borderRadius: 4,
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              textTransform: 'capitalize',
+                              display: 'inline-block'
+                            }}>
+                              {entry.status || 'pending'}
+                            </span>
                           </td>
 
                           {/* Fees Columns */}
@@ -2330,10 +2346,41 @@ const AdminDashboard = ({ onLogout }) => {
                         key={idx}
                         className={`sidebar-item ${selectedRxIndex === idx ? 'active' : ''}`}
                         onClick={() => setSelectedRxIndex(idx)}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                       >
-                        <div className="rx-date">📅 {rx.date}</div>
-                        <div className="rx-doc">Dr. {rx.doctor_name}</div>
-                        {rx.diagnosis && <div className="rx-diag">{rx.diagnosis}</div>}
+                        <div style={{ flex: 1 }}>
+                          <div className="rx-date">📅 {rx.date}</div>
+                          <div className="rx-doc">Dr. {rx.doctor_name}</div>
+                          {rx.diagnosis && <div className="rx-diag">{rx.diagnosis}</div>}
+                        </div>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (window.confirm("Are you sure you want to delete this prescription? This will only delete the prescription visit record and fees, leaving the registered patient details unchanged.")) {
+                              setIsSyncing(true);
+                              try {
+                                await databaseService.deletePrescription(rx.id);
+                                new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+                                await fetchAllData();
+                                const newHistory = await databaseService.getPrescriptionsByMRN(modalPatient.mrn);
+                                setModalPatientHistory(newHistory || []);
+                                if (!newHistory || newHistory.length === 0) {
+                                  setModalPatient(null);
+                                } else {
+                                  setSelectedRxIndex(0);
+                                }
+                              } catch (err) {
+                                alert("Failed to delete prescription: " + err.message);
+                              } finally {
+                                setIsSyncing(false);
+                              }
+                            }
+                          }}
+                          style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '1.2rem', cursor: 'pointer', padding: '4px 8px' }}
+                          title="Delete this prescription record only"
+                        >
+                          🗑️
+                        </button>
                       </div>
                     ))}
                     {patientRxs.length === 0 && (
@@ -2353,19 +2400,85 @@ const AdminDashboard = ({ onLogout }) => {
                           <span>Patient ID: {previewData.mrn}</span>
                         </div>
                         <div className="toolbar-actions">
+                          <button className="print-btn" style={{ background: '#ef4444', borderColor: '#ef4444', marginRight: '6px' }} onClick={async () => {
+                            if (window.confirm("Are you sure you want to delete this prescription? This will only delete the prescription visit record and fees, leaving the registered patient details unchanged.")) {
+                              setIsSyncing(true);
+                              try {
+                                await databaseService.deletePrescription(activeRx.id);
+                                new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+                                await fetchAllData();
+                                const newHistory = await databaseService.getPrescriptionsByMRN(modalPatient.mrn);
+                                setModalPatientHistory(newHistory || []);
+                                if (!newHistory || newHistory.length === 0) {
+                                  setModalPatient(null);
+                                } else {
+                                  setSelectedRxIndex(0);
+                                }
+                              } catch (err) {
+                                alert("Failed to delete: " + err.message);
+                              } finally {
+                                setIsSyncing(false);
+                              }
+                            }
+                          }}>🗑️ Delete Prescription</button>
                           <button className="print-btn" style={{ background: '#10b981', borderColor: '#10b981' }} onClick={async () => {
                             const paperEl = document.getElementById('prescription-paper');
                             if (!paperEl) { alert('Prescription preview element not found.'); return; }
+                            if (typeof window.html2pdf === 'undefined') {
+                              alert('PDF library is not loaded yet.');
+                              return;
+                            }
+
+                            // Create a clean offscreen staging area at X/Y = 0 to prevent coordinate clipping
+                            const container = document.createElement('div');
+                            container.style.position = 'fixed';
+                            container.style.left = '0';
+                            container.style.top = '0';
+                            container.style.width = '210mm';
+                            container.style.background = 'white';
+                            container.style.zIndex = '-99999';
+                            container.style.transform = 'none';
+                            container.style.pointerEvents = 'none';
+
+                            // Clone element
+                            const clone = paperEl.cloneNode(true);
+                            clone.style.position = 'relative';
+                            clone.style.left = '0';
+                            clone.style.top = '0';
+                            clone.style.transform = 'none';
+                            clone.style.boxShadow = 'none';
+                            clone.style.border = 'none';
+                            clone.style.margin = '0';
+                            clone.style.width = '210mm';
+                            clone.style.minHeight = '297mm';
+
+                            const inputs = paperEl.querySelectorAll('input, select, textarea');
+                            const cloneInputs = clone.querySelectorAll('input, select, textarea');
+                            inputs.forEach((input, index) => {
+                              if (cloneInputs[index]) cloneInputs[index].value = input.value;
+                            });
+
+                            container.appendChild(clone);
+                            document.body.appendChild(container);
+
                             const filename = `Prescription_${previewData.mrn}_${previewData.date || 'draft'}.pdf`;
                             const opt = {
-                              margin: 8,
+                              margin: 0,
                               filename,
-                              image: { type: 'jpeg', quality: 0.98 },
-                              html2canvas: { scale: 2, useCORS: true },
+                              image: { type: 'jpeg', quality: 1.0 },
+                              html2canvas: {
+                                scale: 3,
+                                useCORS: true,
+                                windowWidth: 794,
+                                scrollY: 0,
+                                scrollX: 0,
+                                backgroundColor: '#ffffff'
+                              },
                               jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
                             };
+
                             try {
-                              const worker = window.html2pdf().set(opt).from(paperEl);
+                              const worker = window.html2pdf().set(opt).from(clone);
                               const pdfBlob = await worker.output('blob');
                               const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
                               if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
@@ -2379,6 +2492,8 @@ const AdminDashboard = ({ onLogout }) => {
                             } catch (err) {
                               console.error('Share failed:', err);
                               if (err.name !== 'AbortError') alert('Could not share. Try the Print button instead.');
+                            } finally {
+                              document.body.removeChild(container);
                             }
                           }}>📤 Share Prescription</button>
                           <button className="print-btn" onClick={() => {

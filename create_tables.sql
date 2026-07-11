@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   doctor_name TEXT,
   doctor_reg_no TEXT,
   vitals      TEXT,
+  status      TEXT DEFAULT 'pending',
   created_at  TIMESTAMPTZ DEFAULT now()
 );
 

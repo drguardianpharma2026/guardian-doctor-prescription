@@ -1147,13 +1147,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                   )}
                 </div>
 
-                <input
-                  className="medicine-qty-input"
-                  placeholder="Qty"
-                  value={med.qty}
-                  onChange={(e) => updateMedicine(index, 'qty', e.target.value)}
-                  style={{ fontWeight: 600 }}
-                />
+
 
                 <div className="medicine-actions">
                   {/* Reorder Arrows */}
@@ -1542,10 +1536,7 @@ const PrescriptionForm = ({ data, setData, savedDoctors, adminMedicines = [], on
                   </div>
                 </div>
 
-                <div style={{ flex: 1 }}>
-                  <Label>Qty</Label>
-                  <input placeholder="Qty" value={med.qty} onChange={(e) => updateMedicine(index, 'qty', e.target.value)} />
-                </div>
+
               </div>
             </div>
           )

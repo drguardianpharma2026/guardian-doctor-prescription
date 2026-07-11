@@ -62,7 +62,8 @@ function App() {
     doctorQualifications: '',
     doctorRole: '',
     doctorRegNo: '',
-    rxId: null
+    rxId: null,
+    status: 'pending'
   })
 
   // Fetch all master data from Neon on mount
@@ -314,6 +315,7 @@ function App() {
           const savePayload = {
             ...data,
             id: data.rxId,
+            status: data.status || 'pending',
             ...(activeSession ? {
               doctorName: activeSession.name,
               doctorQualifications: activeSession.qualifications,
@@ -353,25 +355,19 @@ function App() {
   }
 
   const handlePrint = async () => {
-    // Open window immediately to avoid popup blocker
-    const printWindow = window.open('', '_blank', 'width=1000,height=900');
-    if (!printWindow) {
-      alert('Popup blocked! Please allow popups for this site.');
-      return;
-    }
-
-    // While window is empty, we can save
-    await handleAutoSave();
-
     const paperEl = document.getElementById('prescription-paper')
     if (!paperEl) {
-      printWindow.close();
       alert('No prescription to print.');
       return;
     }
 
-    // Get the styles from the preview component if they are not already in paperEl
-    // Since PrescriptionPreview puts a <style> tag as a sibling, we might need to find it
+    // Open window immediately to avoid popup blocker
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+      alert('Popup blocker! Please allow popups for this site.');
+      return;
+    }
+
     const previewContainer = paperEl.closest('.preview-scroll-wrapper') || paperEl.parentElement;
     const extraStyles = previewContainer ? Array.from(previewContainer.querySelectorAll('style')).map(s => s.innerHTML).join('\n') : '';
 
@@ -384,28 +380,14 @@ function App() {
           <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />
           <style>
             * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { background: #f1f5f9; font-family: 'Inter', 'Noto Sans Tamil', sans-serif; display: flex; flex-direction: column; align-items: center; }
-            #print-toolbar { 
-              position: sticky; top: 0; z-index: 1000; width: 100%; 
-              background: #1e3a5f; display: flex; align-items: center; 
-              justify-content: space-between; padding: 12px 24px; color: white; 
-              box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-family: sans-serif;
-            }
-            #print-toolbar button { 
-              background: #10b981; color: white; border: none; 
-              padding: 10px 24px; border-radius: 8px; font-weight: 700; 
-              cursor: pointer; font-size: 14px; transition: all 0.2s;
-              box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-            }
-            #print-toolbar button:hover { background: #059669; transform: translateY(-1px); }
-            #paper-wrapper { padding: 40px 20px; display: flex; justify-content: center; width: 100%; }
+            body { background: white; font-family: 'Inter', 'Noto Sans Tamil', sans-serif; display: flex; flex-direction: column; align-items: center; }
+            #paper-wrapper { padding: 0; display: flex; justify-content: center; width: 100%; }
             #prescription-paper { 
               width: 210mm; min-height: 297mm; background: white; 
-              box-shadow: 0 10px 40px rgba(0,0,0,0.15); border-radius: 4px;
+              box-shadow: none; border: none; border-radius: 0;
             }
             ${extraStyles}
             @media print { 
-              #print-toolbar { display: none !important; } 
               body { background: white !important; padding: 0 !important; } 
               #paper-wrapper { padding: 0 !important; display: block !important; }
               #prescription-paper { box-shadow: none !important; border: none !important; border-radius: 0 !important; width: 210mm !important; }
@@ -413,24 +395,67 @@ function App() {
           </style>
         </head>
         <body>
-          <div id="print-toolbar">
-            <div style="display:flex; align-items:center; gap:10px">
-              <span style="font-size:20px">🩺</span>
-              <span style="font-weight:700; font-size:16px">Prescription Preview</span>
-            </div>
-            <button onclick="window.print()">🖨 Print Prescription</button>
-          </div>
           <div id="paper-wrapper">
             ${paperEl.outerHTML}
           </div>
           <script>
-            // Auto-print focus
             window.focus();
+            window.onload = function() {
+              window.print();
+              window.close();
+            }
           </script>
         </body>
       </html>
     `);
     printWindow.document.close();
+
+    // Check when print window finishes / closes, then ask for confirmation
+    const checkPrintClosed = setInterval(() => {
+      if (printWindow.closed) {
+        clearInterval(checkPrintClosed);
+        setTimeout(async () => {
+          const success = window.confirm("Did the document print successfully?");
+          if (success) {
+            setIsSyncing(true);
+            try {
+              // 1. Save patient metadata
+              await databaseService.savePatient(data);
+
+              // 2. Prepare payload marked as success
+              const activeSession = (() => {
+                try { const sd = localStorage.getItem('session_doctor'); return sd ? JSON.parse(sd) : null; } catch { return null; }
+              })();
+              const savePayload = {
+                ...data,
+                id: data.rxId,
+                status: 'success',
+                ...(activeSession ? {
+                  doctorName: activeSession.name,
+                  doctorQualifications: activeSession.qualifications,
+                  doctorRole: activeSession.role,
+                  doctorRegNo: activeSession.regNo
+                } : {})
+              };
+
+              const savedRx = await databaseService.savePrescription(savePayload);
+              if (savedRx && savedRx.id) {
+                setData(prev => ({ ...prev, rxId: savedRx.id, status: 'success' }));
+              } else {
+                setData(prev => ({ ...prev, status: 'success' }));
+              }
+              new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+              alert("Prescription saved successfully in database!");
+            } catch (err) {
+              console.error("Print confirm save failed:", err);
+              alert("Failed to save printed prescription: " + err.message);
+            } finally {
+              setIsSyncing(false);
+            }
+          }
+        }, 100);
+      }
+    }, 500);
   }
 
   const handleShare = async () => {
@@ -441,15 +466,77 @@ function App() {
       alert('PDF library is not loaded yet.');
       return;
     }
-    const opt = { margin: 0, filename: `Prescription_${data.patientName}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+
+    // Create a clean offscreen staging area at X/Y = 0 to prevent coordinate clipping
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.width = '210mm';
+    container.style.background = 'white';
+    container.style.zIndex = '-99999';
+    container.style.transform = 'none';
+    container.style.pointerEvents = 'none';
+
+    // Clone element
+    const clone = paperEl.cloneNode(true);
+    clone.style.position = 'relative';
+    clone.style.left = '0';
+    clone.style.top = '0';
+    clone.style.transform = 'none';
+    clone.style.boxShadow = 'none';
+    clone.style.border = 'none';
+    clone.style.margin = '0';
+    clone.style.width = '210mm';
+    clone.style.minHeight = '297mm';
+
+    // Copy any input values (e.g. active text state fields)
+    const inputs = paperEl.querySelectorAll('input, select, textarea');
+    const cloneInputs = clone.querySelectorAll('input, select, textarea');
+    inputs.forEach((input, index) => {
+      if (cloneInputs[index]) cloneInputs[index].value = input.value;
+    });
+
+    container.appendChild(clone);
+    document.body.appendChild(container);
+
+    const filename = `Prescription_${data.patientName || 'patient'}.pdf`;
+    const opt = {
+      margin: 0,
+      filename,
+      image: { type: 'jpeg', quality: 1.0 },
+      html2canvas: {
+        scale: 3, // High scale for readable Tamil instructions and fonts
+        useCORS: true,
+        windowWidth: 794,
+        scrollY: 0,
+        scrollX: 0,
+        backgroundColor: '#ffffff'
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
     try {
-      const worker = window.html2pdf().set(opt).from(paperEl);
+      const worker = window.html2pdf().set(opt).from(clone);
       const pdfBlob = await worker.output('blob');
-      const pdfFile = new File([pdfBlob], opt.filename, { type: 'application/pdf' });
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
         await navigator.share({ files: [pdfFile], title: `Prescription - ${data.patientName}` });
-      } else { await worker.save(); }
-    } catch (err) { console.error(err); alert('Share failed.'); }
+      } else {
+        const url = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Share failed.');
+    } finally {
+      document.body.removeChild(container);
+    }
   }
 
   return (
@@ -576,6 +663,7 @@ function App() {
                                       doctorRole: activeSession ? activeSession.role : fullData.doctorRole,
                                       doctorRegNo: activeSession ? activeSession.regNo : (fullData.doctorRegNo || rx.doctor_reg_no || ''),
                                       visitNo: rx.visit_no || fullData.visitNo,
+                                      status: rx.status || 'pending',
                                       weight: vitals.weight || fullData.weight,
                                       bp: vitals.bp || fullData.bp,
                                       pulse: vitals.pulse || fullData.pulse,

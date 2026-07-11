@@ -185,6 +185,29 @@ export default function TodayOP() {
         finally { setIsSyncing(false) }
     };
 
+    const handleDeleteModalRx = async (rxId) => {
+        if (!window.confirm("Are you sure you want to delete this prescription? This will only delete the prescription visit record and fees, leaving the registered patient details unchanged.")) return;
+        setIsSyncing(true);
+        try {
+            await databaseService.deletePrescription(rxId);
+            new BroadcastChannel('nexusrx_sync').postMessage('refresh');
+            await loadData();
+            // Re-fetch remaining
+            const dbRx = await databaseService.getPrescriptions();
+            const today = new Date().toLocaleDateString('en-CA');
+            const remaining = (dbRx || []).filter(rx => rx.date === today && rx.mrn === modalPatient.mrn);
+            if (remaining.length === 0) {
+                setModalPatient(null);
+            } else {
+                setSelectedRxIndex(0);
+            }
+        } catch (err) {
+            alert('Failed to delete prescription: ' + err.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     // ── Print OP List ──
     const handlePrint = () => {
         const rows = filtered.map((p, i) => `
@@ -309,7 +332,7 @@ export default function TodayOP() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', fontSize: '0.83rem' }}>
                         <thead>
                             <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Visits', 'Actions'].map(h => (
+                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Print Status', 'Age', 'Sex', 'Phone', 'Visits', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.74rem', letterSpacing: 0.3, color: 'white' }}>{h}</th>
                                 ))}
                             </tr>
@@ -339,6 +362,20 @@ export default function TodayOP() {
                                         <td style={{ padding: '8px 10px' }}>
                                             <span style={{ background: '#f0fdf4', color: '#166534', borderRadius: 4, padding: '2px 8px', fontWeight: 700, fontSize: '0.72rem', border: '1px solid #bbf7d0' }}>
                                                 {p.doctor_name || 'Not Assigned'}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '8px 10px' }}>
+                                            <span style={{
+                                                background: p.status === 'success' ? '#f0fdf4' : '#fffbeb',
+                                                color: p.status === 'success' ? '#166534' : '#b45309',
+                                                borderRadius: 4,
+                                                padding: '2px 8px',
+                                                fontWeight: 700,
+                                                fontSize: '0.72rem',
+                                                border: `1px solid ${p.status === 'success' ? '#bbf7d0' : '#fde68a'}`,
+                                                textTransform: 'capitalize'
+                                            }}>
+                                                {p.status || 'pending'}
                                             </span>
                                         </td>
                                         <td style={{ padding: '8px 10px' }}>{p.age || '—'}</td>
@@ -541,18 +578,169 @@ export default function TodayOP() {
                                 {rxModal.patientRxs.length === 0 && <div style={{ padding: 20, color: '#94a3b8', fontSize: '0.82rem' }}>No prescriptions found.</div>}
                                 {rxModal.patientRxs.map((rx, idx) => (
                                     <div key={idx} onClick={() => setSelectedRxIndex(idx)}
-                                        style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', background: selectedRxIndex === idx ? '#dbeafe' : 'transparent', borderLeft: selectedRxIndex === idx ? '3px solid #2563eb' : '3px solid transparent' }}>
-                                        <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>📅 {rx.date}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Dr. {rx.doctor_name}</div>
-                                        {rx.diagnosis && <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: 2 }}>{rx.diagnosis}</div>}
+                                        style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid #e2e8f0', background: selectedRxIndex === idx ? '#dbeafe' : 'transparent', borderLeft: selectedRxIndex === idx ? '3px solid #2563eb' : '3px solid transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>📅 {rx.date}</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Dr. {rx.doctor_name}</div>
+                                            {rx.diagnosis && <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: 2 }}>{rx.diagnosis}</div>}
+                                        </div>
+                                        <button
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                await handleDeleteModalRx(rx.id);
+                                            }}
+                                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px 8px', fontSize: '0.95rem' }}
+                                            title="Delete prescription record only"
+                                        >
+                                            🗑️
+                                        </button>
                                     </div>
                                 ))}
                             </div>
                             <button onClick={() => setModalPatient(null)} style={{ margin: 12, padding: '8px', background: '#1e3a5f', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>Close Viewer</button>
                         </div>
                         {/* Right: preview */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: '#e8edf2' }}>
-                            {rxModal.previewData ? <PrescriptionPreview data={rxModal.previewData} /> : (
+                        <div style={{ flex: 1, overflowY: 'auto', padding: 16, background: '#e8edf2', display: 'flex', flexDirection: 'column' }}>
+                            {rxModal.previewData ? (
+                                <>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '12px 20px', borderRadius: 8, marginBottom: 12, border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                                        <div>
+                                            <span style={{ fontWeight: 700, color: '#1e293b', fontSize: '0.9rem' }}>Viewing Prescription</span>
+                                            <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 10 }}>Patient MRN ID: {rxModal.previewData.mrn}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                            <button
+                                                onClick={async () => {
+                                                    const paperEl = document.getElementById('prescription-paper');
+                                                    if (!paperEl) { alert('Preview element not found.'); return; }
+                                                    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+                                                    if (!printWindow) { alert('Popup blocked! Please allow popups for this site.'); return; }
+                                                    const extraStyles = Array.from(paperEl.parentElement.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+                                                    printWindow.document.write(`
+                                                      <!DOCTYPE html>
+                                                      <html>
+                                                        <head>
+                                                          <meta charset="utf-8" />
+                                                          <title>Prescription - ${rxModal.previewData.patientName}</title>
+                                                          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />
+                                                          <style>
+                                                            * { box-sizing: border-box; margin: 0; padding: 0; }
+                                                            body { background: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+                                                            #paper-wrapper { padding: 0; display: flex; justify-content: center; width: 100%; }
+                                                            #prescription-paper { width: 210mm; min-height: 297mm; background: white; box-shadow: none; border: none; border-radius: 0; }
+                                                            ${extraStyles}
+                                                          </style>
+                                                        </head>
+                                                        <body>
+                                                          <div id="paper-wrapper">${paperEl.outerHTML}</div>
+                                                          <script>
+                                                            window.focus();
+                                                            window.onload = function() { window.print(); window.close(); }
+                                                          </script>
+                                                        </body>
+                                                      </html>
+                                                    `);
+                                                    printWindow.document.close();
+                                                }}
+                                                style={{ padding: '6px 12px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                                🖨️ Print
+                                            </button>
+                                            <button
+                                                onClick={async () => {
+                                                    const paperEl = document.getElementById('prescription-paper');
+                                                    if (!paperEl) { alert('Preview element not found.'); return; }
+                                                    if (typeof window.html2pdf === 'undefined') {
+                                                        alert('PDF library is not loaded yet.');
+                                                        return;
+                                                    }
+
+                                                    // Create clean offscreen staging area at X/Y = 0 to prevent coordinate clipping
+                                                    const container = document.createElement('div');
+                                                    container.style.position = 'fixed';
+                                                    container.style.left = '0';
+                                                    container.style.top = '0';
+                                                    container.style.width = '210mm';
+                                                    container.style.background = 'white';
+                                                    container.style.zIndex = '-99999';
+                                                    container.style.transform = 'none';
+                                                    container.style.pointerEvents = 'none';
+
+                                                    // Clone element
+                                                    const clone = paperEl.cloneNode(true);
+                                                    clone.style.position = 'relative';
+                                                    clone.style.left = '0';
+                                                    clone.style.top = '0';
+                                                    clone.style.transform = 'none';
+                                                    clone.style.boxShadow = 'none';
+                                                    clone.style.border = 'none';
+                                                    clone.style.margin = '0';
+                                                    clone.style.width = '210mm';
+                                                    clone.style.minHeight = '297mm';
+
+                                                    const inputs = paperEl.querySelectorAll('input, select, textarea');
+                                                    const cloneInputs = clone.querySelectorAll('input, select, textarea');
+                                                    inputs.forEach((input, index) => {
+                                                        if (cloneInputs[index]) cloneInputs[index].value = input.value;
+                                                    });
+
+                                                    container.appendChild(clone);
+                                                    document.body.appendChild(container);
+
+                                                    const filename = `Prescription_${rxModal.previewData.mrn}_${rxModal.previewData.date || 'draft'}.pdf`;
+                                                    const opt = {
+                                                        margin: 0,
+                                                        filename,
+                                                        image: { type: 'jpeg', quality: 1.0 },
+                                                        html2canvas: {
+                                                            scale: 3,
+                                                            useCORS: true,
+                                                            windowWidth: 794,
+                                                            scrollY: 0,
+                                                            scrollX: 0,
+                                                            backgroundColor: '#ffffff'
+                                                        },
+                                                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                                                    };
+
+                                                    try {
+                                                        const worker = window.html2pdf().set(opt).from(clone);
+                                                        const pdfBlob = await worker.output('blob');
+                                                        const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+                                                        if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                                                            await navigator.share({ files: [pdfFile], title: `Prescription - ${rxModal.previewData.patientName}`, text: `Prescription for ${rxModal.previewData.patientName} (MRN: ${rxModal.previewData.mrn})` });
+                                                        } else {
+                                                            const url = URL.createObjectURL(pdfBlob);
+                                                            const a = document.createElement('a');
+                                                            a.href = url; a.download = filename; a.click();
+                                                            URL.revokeObjectURL(url);
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Share failed:', err);
+                                                        if (err.name !== 'AbortError') alert('Could not share. Try the Print button instead.');
+                                                    } finally {
+                                                        document.body.removeChild(container);
+                                                    }
+                                                }}
+                                                style={{ padding: '6px 12px', background: '#10b981', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                                📤 Share
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteModalRx(rxModal.patientRxs[selectedRxIndex].id)}
+                                                style={{ padding: '6px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                                🗑️ Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+                                        <div style={{ width: '100%', maxWidth: '800px' }}>
+                                            <PrescriptionPreview data={rxModal.previewData} />
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8' }}>No prescription selected.</div>
                             )}
                         </div>

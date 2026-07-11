@@ -158,6 +158,7 @@ export const databaseService = {
       doctor_name: prescriptionData.doctorName || '',
       doctor_reg_no: prescriptionData.doctorRegNo || '',
       visit_no: prescriptionData.visitNo || '',
+      status: prescriptionData.status,
       vitals: JSON.stringify({
         weight: prescriptionData.weight,
         bp: prescriptionData.bp,

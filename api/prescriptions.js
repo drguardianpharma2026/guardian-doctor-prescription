@@ -6,6 +6,9 @@ export default async function handler(req, res) {
   try {
     const sql = getDb();
 
+    // Auto-migrate columns if missing
+    await sql`ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending'`;
+
     if (req.method === 'GET') {
       const { mrn, date, id, forceCleanup } = req.query;
 
@@ -71,6 +74,7 @@ export default async function handler(req, res) {
             med_fees = ${d.med_fees !== undefined ? (d.med_fees || '') : sql`med_fees`},
             lab_given = ${d.lab_given !== undefined ? (d.lab_given || '') : sql`lab_given`},
             lab_cash = ${d.lab_cash !== undefined ? (d.lab_cash || '') : sql`lab_cash`},
+            status = ${d.status !== undefined ? d.status : sql`status`},
             visit_no = ${d.visit_no !== undefined ? d.visit_no : sql`visit_no`}
           WHERE id = ${d.id}
         `;
@@ -78,11 +82,11 @@ export default async function handler(req, res) {
         // Insert new record
         await sql`
           INSERT INTO prescriptions
-            (mrn, patient_name, date, diagnosis, complaints, medicines, advice, follow_up, doctor_name, doctor_reg_no, vitals, dr_fees, med_fees, lab_given, lab_cash, visit_no, created_at)
+            (mrn, patient_name, date, diagnosis, complaints, medicines, advice, follow_up, doctor_name, doctor_reg_no, vitals, dr_fees, med_fees, lab_given, lab_cash, visit_no, status, created_at)
           VALUES
             (${d.mrn}, ${d.patient_name}, ${d.date}, ${d.diagnosis || ''}, ${d.complaints || ''},
              ${d.medicines || '[]'}, ${d.advice || ''}, ${d.follow_up || ''},
-             ${d.doctor_name || ''}, ${d.doctor_reg_no || ''}, ${d.vitals || '{}'}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.visit_no || ''}, NOW())
+             ${d.doctor_name || ''}, ${d.doctor_reg_no || ''}, ${d.vitals || '{}'}, ${d.dr_fees || ''}, ${d.med_fees || ''}, ${d.lab_given || ''}, ${d.lab_cash || ''}, ${d.visit_no || ''}, ${d.status || 'pending'}, NOW())
         `;
       }
       return res.status(200).json({ success: true });
