@@ -332,7 +332,7 @@ export default function TodayOP() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', fontSize: '0.83rem' }}>
                         <thead>
                             <tr style={{ background: '#1e3a5f', color: 'white' }}>
-                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Print Status', 'Age', 'Sex', 'Phone', 'Visits', 'Actions'].map(h => (
+                                {['#', 'Token', 'MRN', 'Patient Name', 'Doctor', 'Age', 'Sex', 'Phone', 'Visits', 'Actions'].map(h => (
                                     <th key={h} style={{ padding: '10px 10px', fontWeight: 700, textAlign: h === 'Actions' || h === 'Visits' ? 'center' : 'left', whiteSpace: 'nowrap', fontSize: '0.74rem', letterSpacing: 0.3, color: 'white' }}>{h}</th>
                                 ))}
                             </tr>
@@ -364,20 +364,7 @@ export default function TodayOP() {
                                                 {p.doctor_name || 'Not Assigned'}
                                             </span>
                                         </td>
-                                        <td style={{ padding: '8px 10px' }}>
-                                            <span style={{
-                                                background: p.status === 'success' ? '#f0fdf4' : '#fffbeb',
-                                                color: p.status === 'success' ? '#166534' : '#b45309',
-                                                borderRadius: 4,
-                                                padding: '2px 8px',
-                                                fontWeight: 700,
-                                                fontSize: '0.72rem',
-                                                border: `1px solid ${p.status === 'success' ? '#bbf7d0' : '#fde68a'}`,
-                                                textTransform: 'capitalize'
-                                            }}>
-                                                {p.status || 'pending'}
-                                            </span>
-                                        </td>
+
                                         <td style={{ padding: '8px 10px' }}>{p.age || '—'}</td>
                                         <td style={{ padding: '8px 10px' }}>{p.sex || '—'}</td>
                                         <td style={{ padding: '8px 10px' }}>{p.phone || '—'}</td>

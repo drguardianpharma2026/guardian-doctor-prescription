@@ -1204,7 +1204,7 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ width: 60 }}>Sex</th>
                       <th style={{ minWidth: 100 }}>Phone</th>
                       <th style={{ minWidth: 150 }}>Attending Doctor</th>
-                      <th style={{ width: 95, textAlign: 'center' }}>Print Status</th>
+
                       <th style={{ width: 90, color: '#16a34a', fontWeight: 800, textAlign: 'center' }}>Dr Fees (₹)</th>
                       <th style={{ width: 90, color: '#9333ea', fontWeight: 800, textAlign: 'center' }}>Medicine (₹)</th>
                       <th style={{ width: 90, color: '#2563eb', fontWeight: 800, textAlign: 'center' }}>Lab Given</th>
@@ -1287,21 +1287,7 @@ const AdminDashboard = ({ onLogout }) => {
                               </div>
                             )}
                           </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <span style={{
-                              padding: '2px 8px',
-                              background: entry.status === 'success' ? '#f0fdf4' : '#fffbeb',
-                              color: entry.status === 'success' ? '#166534' : '#b45309',
-                              border: `1px solid ${entry.status === 'success' ? '#bbf7d0' : '#fde68a'}`,
-                              borderRadius: 4,
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              textTransform: 'capitalize',
-                              display: 'inline-block'
-                            }}>
-                              {entry.status || 'pending'}
-                            </span>
-                          </td>
+
 
                           {/* Fees Columns */}
                           {
