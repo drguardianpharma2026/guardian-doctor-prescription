@@ -116,6 +116,7 @@ const AdminDashboard = ({ onLogout }) => {
   const [monthlyLabProfits, setMonthlyLabProfits] = useState({}) // { [month-doctorName]: value }
   const [labProfitSaveStatus, setLabProfitSaveStatus] = useState({}) // { [key]: 'saving'|'saved'|'error' }
   const [labProfitToast, setLabProfitToast] = useState(null) // { message, type } for save confirmation
+  const [patientFilterMonth, setPatientFilterMonth] = useState('')
 
   // --- Optimization: Debounced Search for Smother UI ---
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -731,6 +732,128 @@ const AdminDashboard = ({ onLogout }) => {
     setIsSyncing(false);
   };
 
+  const handlePrintPatients = () => {
+    const isNumericTerm = /^\d+$/.test(searchTerm);
+    const getPatientMonth = (p) => {
+      if (p.registration_date) return p.registration_date.substring(0, 7);
+      if (p.updated_at) return new Date(p.updated_at).toISOString().substring(0, 7);
+      return '';
+    };
+
+    const filtered = patients.filter(p => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm || p.name?.toLowerCase().includes(searchLower) ||
+        (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
+        (searchTerm.length >= 5 && p.phone?.toLowerCase().includes(searchLower));
+
+      if (!matchesSearch) return false;
+
+      if (patientFilterMonth) {
+        return getPatientMonth(p) === patientFilterMonth;
+      }
+      return true;
+    });
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Popup blocked! Please allow popups for this site.');
+      return;
+    }
+
+    let filterInfo = 'All Patient Records';
+    if (patientFilterMonth) {
+      const [year, month] = patientFilterMonth.split('-');
+      filterInfo = `Month: ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+    }
+    if (searchTerm) {
+      filterInfo += ` (Search: "${searchTerm}")`;
+    }
+
+    const reportHtml = `
+      <html>
+        <head>
+          <title>Patient Records - ${filterInfo}</title>
+          <style>
+            body { font-family: sans-serif; padding: 30px; color: #334155; }
+            h1 { text-align: center; margin-bottom: 5px; color: #1e293b; font-size: 1.8rem; }
+            h2 { text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; margin-bottom: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
+            th, td { border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; }
+            th { background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+            tr:nth-child(even) { background: #f8fafc; }
+            .footer { margin-top: 50px; text-align: right; font-size: 0.85rem; color: #64748b; }
+            @media print {
+              body { padding: 15px; }
+              button { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${clinicSettings.name}</h1>
+          <h2 style="text-transform: uppercase;">PATIENTS REGISTRY - ${filterInfo}</h2>
+          <div style="margin-bottom: 15px; font-weight: bold; color: #475569;">Total Patients: ${filtered.length}</div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 5%">#</th>
+                <th style="width: 10%">MRN</th>
+                <th style="width: 25%">Patient Name</th>
+                <th style="width: 8%">Age</th>
+                <th style="width: 8%">Sex</th>
+                <th style="width: 15%">Phone</th>
+                <th style="width: 17%">Reg Date</th>
+                <th style="width: 12%">Place</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map((p, idx) => {
+      let displayDate = '---';
+      if (p.registration_date) {
+        const parts = p.registration_date.split(' ');
+        const dateVal = parts[0];
+        const timeVal = parts[1];
+        displayDate = dateVal;
+        if (dateVal.includes('-')) {
+          const [y, m, d] = dateVal.split('-');
+          if (y.length === 4) displayDate = `${d}/${m}/${y}`;
+        }
+        if (timeVal) displayDate += ` ${timeVal}`;
+      } else if (p.updated_at) {
+        const dt = new Date(p.updated_at);
+        displayDate = dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' +
+          dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+
+      return `
+                  <tr>
+                    <td>${idx + 1}</td>
+                    <td style="font-weight: bold; color: #1e3a8a;">${p.mrn}</td>
+                    <td>${p.name || ''}</td>
+                    <td>${p.age || ''}</td>
+                    <td>${p.sex || ''}</td>
+                    <td>${p.phone || ''}</td>
+                    <td>${displayDate}</td>
+                    <td>${p.place || ''}</td>
+                  </tr>
+                `;
+    }).join('')}
+              ${filtered.length === 0 ? `<tr><td colspan="8" style="text-align: center; padding: 30px; color: #94a3b8;">No registered patient records found.</td></tr>` : ''}
+            </tbody>
+          </table>
+          <div class="footer">
+            Printed on: ${new Date().toLocaleString('en-IN')}
+          </div>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(reportHtml);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
   const filteredMedicines = React.useMemo(() => {
     const searchLower = debouncedSearchTerm.toLowerCase();
     return medicines.filter(m =>
@@ -974,7 +1097,63 @@ const AdminDashboard = ({ onLogout }) => {
                 />
               </div>
               {activeTab === 'patients' && (
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#4b5563', whiteSpace: 'nowrap' }}>FILTER MONTH:</span>
+                  <input
+                    type="month"
+                    value={patientFilterMonth}
+                    onChange={(e) => setPatientFilterMonth(e.target.value)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      border: '1px solid #d1d5db',
+                      outline: 'none',
+                      fontSize: '0.85rem',
+                      fontFamily: 'inherit',
+                      background: 'white',
+                      height: '32px',
+                      width: '150px'
+                    }}
+                  />
+                  {patientFilterMonth && (
+                    <button
+                      onClick={() => setPatientFilterMonth('')}
+                      style={{
+                        background: '#f3f4f6',
+                        color: '#4b5563',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '4px',
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        fontSize: '0.85rem',
+                        height: '32px',
+                        display: 'inline-flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    onClick={handlePrintPatients}
+                    style={{
+                      background: '#4f46e5',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '6px 15px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      height: '32px'
+                    }}
+                  >
+                    🖨️ Print List
+                  </button>
                   <button
                     onClick={() => {
                       const nextMRN = getNextAutomationMRN(patients);
@@ -993,7 +1172,7 @@ const AdminDashboard = ({ onLogout }) => {
                       setIsRegisterModalOpen(true);
                     }}
                     className="excel-add-btn"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#10b981' }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#10b981', height: '32px' }}
                   >
                     ➕ Register Patient
                   </button>
@@ -1764,11 +1943,23 @@ const AdminDashboard = ({ onLogout }) => {
 
           {activeTab === 'patients' && (() => {
             const isNumericTerm = /^\d+$/.test(searchTerm);
-            const filteredPatients = patients.filter(p =>
-              p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
-              (searchTerm.length >= 5 && p.phone?.toLowerCase().includes(searchTerm.toLowerCase()))
-            );
+            const getPatientMonth = (p) => {
+              if (p.registration_date) return p.registration_date.substring(0, 7);
+              if (p.updated_at) return new Date(p.updated_at).toISOString().substring(0, 7);
+              return '';
+            };
+            const filteredPatients = patients.filter(p => {
+              const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
+                (searchTerm.length >= 5 && p.phone?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+              if (!matchesSearch) return false;
+
+              if (patientFilterMonth) {
+                return getPatientMonth(p) === patientFilterMonth;
+              }
+              return true;
+            });
 
             // OPTIMIZATION: Pre-group prescriptions by MRN for O(1) lookup in loop
             const rxCounts = {};
@@ -3245,17 +3436,18 @@ const AdminDashboard = ({ onLogout }) => {
         .header-left h1 { font-size: 1.25rem; margin: 0; color: #111827; }
         .header-left p { font-size: 0.75rem; margin: 2px 0 0; color: #6b7280; }
 
-        .header-right { display: flex; gap: 12px; }
+        .header-right { display: flex; gap: 12px; align-items: center; }
         .excel-search input {
           border: 1px solid #d1d5db;
           padding: 6px 12px;
           border-radius: 4px;
           font-size: 0.85rem;
           width: 250px;
+          height: 32px;
           outline: none;
         }
         .excel-search input:focus { border-color: #2563eb; ring: 2px solid #bfdbfe; }
-        .excel-add-btn { background: #2563eb; color: white; border: none; padding: 6px 15px; border-radius: 4px; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+        .excel-add-btn { background: #2563eb; color: white; border: none; padding: 6px 15px; border-radius: 4px; font-weight: 600; font-size: 0.85rem; cursor: pointer; height: 32px; display: inline-flex; align-items: center; }
 
         /* The Grid Table */
         .excel-content { flex: 1; overflow-x: auto; overflow-y: auto; padding: 0; background: white; -webkit-overflow-scrolling: touch; }
