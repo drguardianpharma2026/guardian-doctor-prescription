@@ -854,6 +854,128 @@ const AdminDashboard = ({ onLogout }) => {
     }, 500);
   };
 
+  const handleSharePatients = async () => {
+    const isNumericTerm = /^\d+$/.test(searchTerm);
+    const getPatientMonth = (p) => {
+      if (p.registration_date) return p.registration_date.substring(0, 7);
+      if (p.updated_at) return new Date(p.updated_at).toISOString().substring(0, 7);
+      return '';
+    };
+
+    const filtered = patients.filter(p => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm || p.name?.toLowerCase().includes(searchLower) ||
+        (isNumericTerm ? String(p.mrn).trim() === searchTerm.trim() : String(p.mrn).includes(searchTerm)) ||
+        (searchTerm.length >= 5 && p.phone?.toLowerCase().includes(searchLower));
+
+      if (!matchesSearch) return false;
+
+      if (patientFilterMonth) {
+        return getPatientMonth(p) === patientFilterMonth;
+      }
+      return true;
+    });
+
+    let filterInfo = 'All Patient Records';
+    if (patientFilterMonth) {
+      const [year, month] = patientFilterMonth.split('-');
+      filterInfo = `Month: ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+    }
+    if (searchTerm) {
+      filterInfo += ` (Search: "${searchTerm}")`;
+    }
+
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = `
+      <div style="padding: 30px; font-family: sans-serif; color: #334155;">
+        <h1 style="text-align: center; margin-bottom: 5px; color: #1e293b; font-size: 1.8rem;">${clinicSettings.name}</h1>
+        <h2 style="text-align: center; color: #64748b; margin-top: 0; font-size: 1.1rem; margin-bottom: 30px; text-transform: uppercase;">PATIENTS REGISTRY - ${filterInfo}</h2>
+        <div style="margin-bottom: 15px; font-weight: bold; color: #475569;">Total Patients: ${filtered.length}</div>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em;">
+          <thead>
+            <tr>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 5%">#</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 10%">MRN</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 25%">Patient Name</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 8%">Age</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 8%">Sex</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 15%">Phone</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 17%">Reg Date</th>
+              <th style="border: 1px solid #cbd5e1; padding: 10px 8px; text-align: left; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; width: 12%">Place</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map((p, idx) => {
+      let displayDate = '---';
+      if (p.registration_date) {
+        const parts = p.registration_date.split(' ');
+        const dateVal = parts[0];
+        const timeVal = parts[1];
+        displayDate = dateVal;
+        if (dateVal.includes('-')) {
+          const [y, m, d] = dateVal.split('-');
+          if (y.length === 4) displayDate = `${d}/${m}/${y}`;
+        }
+        if (timeVal) displayDate += ` ${timeVal}`;
+      } else if (p.updated_at) {
+        const dt = new Date(p.updated_at);
+        displayDate = dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' +
+          dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+
+      return `
+                <tr>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${idx + 1}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px; font-weight: bold; color: #1e3a8a;">${p.mrn}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${p.name || ''}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${p.age || ''}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${p.sex || ''}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${p.phone || ''}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${displayDate}</td>
+                  <td style="border: 1px solid #cbd5e1; padding: 10px 8px;">${p.place || ''}</td>
+                </tr>
+              `;
+    }).join('')}
+            ${filtered.length === 0 ? `<tr><td colspan="8" style="text-align: center; padding: 30px; color: #94a3b8; border: 1px solid #cbd5e1;">No registered patient records found.</td></tr>` : ''}
+          </tbody>
+        </table>
+        <div style="margin-top: 50px; text-align: right; font-size: 0.85rem; color: #64748b;">
+          Generated on: ${new Date().toLocaleString('en-IN')}
+        </div>
+      </div>
+    `;
+
+    const cleanFilterInfo = filterInfo.replace(/[^a-zA-Z0-9\s]/g, '').replace(/\s+/g, '_');
+    const opt = {
+      margin: 10,
+      filename: `Patient_Records_${cleanFilterInfo}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    try {
+      setIsSyncing(true);
+      const worker = window.html2pdf().set(opt).from(tempDiv);
+      const pdfBlob = await worker.output('blob');
+      const pdfFile = new File([pdfBlob], opt.filename, { type: 'application/pdf' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+        await navigator.share({
+          files: [pdfFile],
+          title: `Patient Records - ${filterInfo}`
+        });
+      } else {
+        await worker.save();
+      }
+    } catch (err) {
+      console.error('Share failed:', err);
+      alert('Failed to share PDF');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const filteredMedicines = React.useMemo(() => {
     const searchLower = debouncedSearchTerm.toLowerCase();
     return medicines.filter(m =>
@@ -886,42 +1008,46 @@ const AdminDashboard = ({ onLogout }) => {
 
   // Memoized Today OP merging and filtering
   const todayOPList = React.useMemo(() => {
-    const map = new Map();
-    // A. Patients registered today
-    patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
-      .forEach(p => map.set(String(p.mrn).trim(), {
-        ...p,
-        name: p.name || 'Unknown Patient',
-        sex: p.sex || p.gender || ''
-      }));
+    const list = [];
+    const seenMrns = new Set();
 
-    // B. Prescriptions today (overwrites or adds)
+    // A. Add all prescriptions for today (Active/Completed/Drafts)
     prescriptions.filter(rx => rx.date === selectedDate)
       .forEach(rx => {
         const mrnKey = String(rx.mrn).trim();
-        const existing = map.get(mrnKey) || {};
         const p = patientsByMRN.get(mrnKey) || {};
-
-        map.set(mrnKey, {
+        seenMrns.add(mrnKey);
+        list.push({
           ...p,
-          ...existing,
           ...rx,
           rxId: rx.id,
-          name: p.name || existing.name || rx.patient_name || 'Unknown Patient',
-          age: p.age || existing.age || '',
-          sex: p.sex || existing.sex || p.gender || '',
-          phone: p.phone || existing.phone || '',
-          place: p.place || existing.place || ''
+          name: p.name || rx.patient_name || 'Unknown Patient',
+          age: p.age || rx.age || '',
+          sex: p.sex || p.gender || rx.sex || '',
+          phone: p.phone || rx.phone || '',
+          place: p.place || rx.place || ''
         });
       });
 
-    const mergedList = Array.from(map.values());
+    // B. Add patients registered today who don't have prescriptions today
+    patients.filter(p => p.date === selectedDate || (p.registration_date && p.registration_date.startsWith(selectedDate)))
+      .forEach(p => {
+        const mrnKey = String(p.mrn).trim();
+        if (!seenMrns.has(mrnKey)) {
+          list.push({
+            ...p,
+            name: p.name || 'Unknown Patient',
+            sex: p.sex || p.gender || ''
+          });
+        }
+      });
+
     const searchLower = debouncedSearchTerm.toLowerCase();
     const isNumericTerm = /^\d+$/.test(debouncedSearchTerm);
     const normalize = (n) => (n || '').trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim();
     const targetDoc = normalize(selectedDoctor);
 
-    return mergedList.filter(item => {
+    return list.filter(item => {
       const matchesSearch = !debouncedSearchTerm ||
         (item.name?.toLowerCase().includes(searchLower)) ||
         (isNumericTerm ? String(item.mrn).trim() === debouncedSearchTerm.trim() : String(item.mrn).includes(debouncedSearchTerm));
@@ -1074,12 +1200,7 @@ const AdminDashboard = ({ onLogout }) => {
                 {activeTab === 'medicines' ? `${medicines.length} Rows found` :
                   activeTab === 'patients' ? `${patients.length} Patients registered` :
                     activeTab === 'todayop' || activeTab === 'fees' ? (() => {
-                      const rxMrns = new Set(prescriptions.map(rx => rx.mrn));
-                      const cnt = patients.filter(p => {
-                        const updOnDate = p.updated_at && new Date(p.updated_at).toISOString().split('T')[0] === selectedDate;
-                        return updOnDate || rxMrns.has(p.mrn);
-                      }).length;
-                      return `${cnt} Patients · ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`;
+                      return `${todayOPList.length} Patients · ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`;
                     })() :
                       activeTab === 'users' ? `${allManagedDoctors.length} Managed Doctors` :
                         'Global Settings'}
@@ -1153,6 +1274,25 @@ const AdminDashboard = ({ onLogout }) => {
                     }}
                   >
                     🖨️ Print List
+                  </button>
+                  <button
+                    onClick={handleSharePatients}
+                    style={{
+                      background: '#10b981',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '6px 15px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '0.85rem',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      height: '32px'
+                    }}
+                  >
+                    ✉️ Share List
                   </button>
                   <button
                     onClick={() => {
@@ -1399,7 +1539,7 @@ const AdminDashboard = ({ onLogout }) => {
                       const visitColor = visitCount === 1 ? { bg: '#f0fdf4', border: '#86efac', text: '#15803d' } : visitCount === 2 ? { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' } : visitCount === 3 ? { bg: '#fef3c7', border: '#fcd34d', text: '#b45309' } : { bg: '#fdf4ff', border: '#e879f9', text: '#7e22ce' };
 
                       return (
-                        <tr key={entry.rxId} style={{ height: '28px' }} data-rx-id={entry.rxId}>
+                        <tr key={entry.rxId || entry.mrn || idx} style={{ height: '28px' }} data-rx-id={entry.rxId}>
                           <td className="row-num-col">{idx + 1}</td>
                           <td><span style={{ padding: '2px 8px', display: 'inline-block', background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 4, fontWeight: 700, fontSize: '0.78rem', color: '#92400e' }}>OP-{String(idx + 1).padStart(2, '0')}</span></td>
                           <td><span style={{ padding: '0 8px', display: 'block', fontWeight: 700, color: '#2563eb' }}>{entry.mrn}</span></td>

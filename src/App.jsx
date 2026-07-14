@@ -137,35 +137,40 @@ function App() {
           databaseService.getAllPatients()
         ]);
 
-        const mergedMap = new Map();
+        const list = [];
+        const seenMrns = new Set();
 
-        // 1. Add all patients registered today (Waiting List)
-        const patientsToday = allPatients.filter(p =>
-          p.date === queryDate || (p.registration_date && p.registration_date.startsWith(queryDate))
-        );
-        patientsToday.forEach(p => {
-          mergedMap.set(String(p.mrn).trim(), {
-            ...p,
-            name: p.name || 'Unknown Patient'
-          });
-        });
-
-        // 2. Wrap prescriptions (Active/Completed)
+        // 1. Wrap prescriptions (Active/Completed)
         if (prescriptions) {
           prescriptions.forEach(rx => {
             const mrnKey = String(rx.mrn).trim();
-            const existingPatient = mergedMap.get(mrnKey);
-            mergedMap.set(mrnKey, {
-              ...(existingPatient || {}),
+            const p = allPatients.find(pat => String(pat.mrn).trim() === mrnKey) || {};
+            seenMrns.add(mrnKey);
+            list.push({
+              ...p,
               ...rx,
               rx_id: rx.id,
               rx_date: rx.date,
-              name: existingPatient?.name || rx.patient_name || 'Unknown Patient'
+              name: p.name || rx.patient_name || 'Unknown Patient'
             });
           });
         }
 
-        setTodayOPPatients(Array.from(mergedMap.values()));
+        // 2. Add all patients registered today who don't have prescriptions today
+        const patientsToday = allPatients.filter(p =>
+          p.date === queryDate || (p.registration_date && p.registration_date.startsWith(queryDate))
+        );
+        patientsToday.forEach(p => {
+          const mrnKey = String(p.mrn).trim();
+          if (!seenMrns.has(mrnKey)) {
+            list.push({
+              ...p,
+              name: p.name || 'Unknown Patient'
+            });
+          }
+        });
+
+        setTodayOPPatients(list);
       } catch (err) {
         console.error('Failed to fetch master data:', err);
       }
@@ -685,16 +690,21 @@ function App() {
                               padding: '10px 12px',
                               borderRadius: '12px',
                               border: '1px solid',
-                              background: data.mrn === p.mrn ? 'var(--primary-subtle)' : 'white',
-                              borderColor: data.mrn === p.mrn ? 'var(--primary)' : 'var(--border)',
+                              background: (data.mrn === p.mrn && (p.rx_id ? data.rxId === p.rx_id : !data.rxId)) ? 'var(--primary-subtle)' : 'white',
+                              borderColor: (data.mrn === p.mrn && (p.rx_id ? data.rxId === p.rx_id : !data.rxId)) ? 'var(--primary)' : 'var(--border)',
                               cursor: 'pointer',
                               transition: 'all 0.2s',
                               position: 'relative'
                             }}
                           >
-                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: data.mrn === p.mrn ? 'var(--primary)' : '#1e293b' }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: (data.mrn === p.mrn && (p.rx_id ? data.rxId === p.rx_id : !data.rxId)) ? 'var(--primary)' : '#1e293b' }}>
                               {p.name}
                             </div>
+                            {p.doctor_name && p.doctor_name !== 'Unassigned' && (
+                              <div style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 700, marginTop: '2px', textAlign: 'left' }}>
+                                🩺 {p.doctor_name}
+                              </div>
+                            )}
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px' }}>
                               <span style={{ fontSize: '0.7rem', color: '#64748b' }}>MRN: {p.mrn}</span>
                               <span style={{ fontSize: '0.75rem', color: '#2563eb', fontWeight: 800 }}>
