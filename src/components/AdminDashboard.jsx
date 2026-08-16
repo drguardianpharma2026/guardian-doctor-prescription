@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
+import { printHeaderSlip } from '../utils/printUtils'
 
 const sortPatientsByMRN = (list) => {
   return [...list].sort((a, b) => {
@@ -1671,6 +1672,11 @@ const AdminDashboard = ({ onLogout }) => {
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                              <button
+                                onClick={() => printHeaderSlip({ mrn: entry.mrn, name: entry.name || entry.patient_name, age: entry.age, sex: entry.sex, date: entry.date || selectedDate })}
+                                style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#166534', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                                title="Print Patient Header Slip (MRN, Date, Name, Age, Sex)"
+                              >🖨️</button>
                               <button
                                 onClick={() => {
                                   setEditingPatient({

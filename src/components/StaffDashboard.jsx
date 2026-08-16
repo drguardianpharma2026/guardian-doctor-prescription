@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
+import { printHeaderSlip } from '../utils/printUtils'
 
 const sortPatientsByMRN = (list) => {
     return [...list].sort((a, b) => {
@@ -482,6 +483,13 @@ const StaffDashboard = () => {
                                                 <td style={{ textAlign: 'center', padding: '6px 8px' }}>
                                                     <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                                                         <button
+                                                            onClick={() => printHeaderSlip({ mrn: p.mrn, name: p.name, age: p.age, sex: p.sex, date: p.date || p.registration_date })}
+                                                            style={{ padding: '3px 8px', borderRadius: 4, border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#166534', fontWeight: 700, fontSize: '0.65rem', cursor: 'pointer' }}
+                                                            title="Print Patient Header Slip (MRN, Date, Name, Age, Sex)"
+                                                        >
+                                                            🖨️
+                                                        </button>
+                                                        <button
                                                             onClick={() => { setEditingPatient({ ...p, patientName: p.name, gender: p.sex }); setIsEditModalOpen(true); }}
                                                             style={{ padding: '3px 10px', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff7ed', color: '#c2410c', fontWeight: 700, fontSize: '0.65rem', cursor: 'pointer' }}
                                                         >
@@ -533,7 +541,7 @@ const StaffDashboard = () => {
                                             <td style={{ textAlign: 'center' }}>{p.last_pulse}</td>
                                             <td style={{ textAlign: 'center' }}>{p.last_temp}</td>
                                             <td style={{ textAlign: 'center' }}>
-                                                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                                                <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                                                     <button onClick={() => { setEditingPatient({ ...p, patientName: p.name, gender: p.sex }); setIsEditModalOpen(true); }} style={{ background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a', fontWeight: 700, padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem' }}>Edit</button>
                                                     <button onClick={async () => { if (window.confirm('Delete patient?')) { await databaseService.deletePatient(p.mrn); refreshData(); } }} style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fee2e2', fontWeight: 700, padding: '4px 10px', borderRadius: 4, cursor: 'pointer', fontSize: '0.75rem' }}>Delete</button>
                                                 </div>

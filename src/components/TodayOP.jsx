@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
+import { printHeaderSlip } from '../utils/printUtils'
 
 const sortPatientsByMRN = (list) =>
     [...list].sort((a, b) => {
@@ -407,6 +408,12 @@ export default function TodayOP() {
                                                         📋 {rxCount}
                                                     </button>
                                                 )}
+                                                <button
+                                                    onClick={() => printHeaderSlip({ mrn: p.mrn, name: p.name, age: p.age, sex: p.sex, date: p.date || p.registration_date })}
+                                                    title="Print Patient Header Slip (MRN, Date, Name, Age, Sex)"
+                                                    style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', color: '#166534', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                                    🖨️
+                                                </button>
                                                 <button
                                                     onClick={() => {
                                                         setEditData({
