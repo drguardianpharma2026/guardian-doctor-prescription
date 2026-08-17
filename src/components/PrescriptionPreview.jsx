@@ -187,8 +187,6 @@ const PrescriptionPreview = ({ data }) => {
 
         {/* ══ PATIENT DETAILS BLOCK ══ */}
         <div style={{
-          borderTop: '1.2px solid #000',
-          borderBottom: '1.2px solid #000',
           padding: '4px 0',
           display: 'grid',
           gridTemplateColumns: '1.25fr 0.75fr',

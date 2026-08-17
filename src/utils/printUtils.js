@@ -101,7 +101,6 @@ export const printHeaderSlip = (data) => {
       </head>
       <body>
         <div class="headline-box">
-          <div class="hr-line"></div>
           <div class="row">
             <div>
               <span class="field-label">MRN No</span><span class="colon">:</span><span>${mrn}</span>
@@ -113,7 +112,6 @@ export const printHeaderSlip = (data) => {
           <div class="row" style="justify-content: flex-start;">
             <span class="field-label">Patient Name</span><span class="colon">:</span><span>${patientLine}</span>
           </div>
-          <div class="hr-line"></div>
         </div>
         <script>
           window.onload = function() {
