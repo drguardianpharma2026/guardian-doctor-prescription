@@ -44,6 +44,37 @@ export default function TodayOP() {
     // Prescription viewer
     const [modalPatient, setModalPatient] = useState(null)
     const [selectedRxIndex, setSelectedRxIndex] = useState(0)
+    const [modalPatientHistory, setModalPatientHistory] = useState([])
+    const [modalVisitDates, setModalVisitDates] = useState(null)
+    const [visitDatesHistory, setVisitDatesHistory] = useState([])
+
+    useEffect(() => {
+        if (!modalPatient) {
+            setModalPatientHistory([])
+            return
+        }
+        const fetchHistory = async () => {
+            try {
+                const history = await databaseService.getPrescriptionsByMRN(modalPatient.mrn)
+                if (history) setModalPatientHistory(history)
+            } catch (err) { console.error(err) }
+        }
+        fetchHistory()
+    }, [modalPatient])
+
+    useEffect(() => {
+        if (!modalVisitDates) {
+            setVisitDatesHistory([])
+            return
+        }
+        const fetchVisitDates = async () => {
+            try {
+                const history = await databaseService.getPrescriptionsByMRN(modalVisitDates.mrn)
+                if (history) setVisitDatesHistory(history)
+            } catch (err) { console.error(err) }
+        }
+        fetchVisitDates()
+    }, [modalVisitDates])
 
     const todayStr = new Date().toLocaleDateString('en-IN')
     const todayFull = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -250,8 +281,21 @@ export default function TodayOP() {
     // Prescription modal data
     const getRxPreview = () => {
         if (!modalPatient) return null
-        const patientRxs = prescriptions.filter(rx => rx.mrn === modalPatient.mrn)
-        const activeRx = patientRxs[selectedRxIndex]
+        let patientRxs = (modalPatientHistory && modalPatientHistory.length > 0)
+            ? [...modalPatientHistory].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+            : prescriptions.filter(rx => String(rx.mrn).trim() === String(modalPatient.mrn).trim());
+
+        if (patientRxs.length === 0) {
+            patientRxs = [{
+                id: 'current',
+                mrn: modalPatient.mrn,
+                date: (modalPatient.registration_date || modalPatient.date || new Date().toLocaleDateString('en-CA')).split(' ')[0],
+                doctor_name: modalPatient.doctor_name || 'Unassigned',
+                patient_name: modalPatient.name || modalPatient.patient_name || ''
+            }];
+        }
+
+        const activeRx = patientRxs[selectedRxIndex] || patientRxs[0]
         if (!activeRx) return { patientRxs, previewData: null }
         const docInfo = users.find(u => u.name === activeRx.doctor_name) || {}
         let vitals = {}, meds = []
@@ -264,7 +308,7 @@ export default function TodayOP() {
                 date: activeRx.date,
                 patientName: activeRx.patient_name || modalPatient.name,
                 age: modalPatient.age, gender: modalPatient.sex, phone: modalPatient.phone,
-                weight: vitals.weight, bp: vitals.bp, pulse: vitals.pulse, temp: vitals.temp,
+                weight: vitals.weight || modalPatient.last_weight, bp: vitals.bp || modalPatient.last_bp, pulse: vitals.pulse || modalPatient.last_pulse, temp: vitals.temp || modalPatient.last_temp,
                 complaints: activeRx.complaints, diagnosis: activeRx.diagnosis,
                 medicines: meds, advice: activeRx.advice, followUp: activeRx.follow_up,
                 doctorName: activeRx.doctor_name, doctorQualifications: docInfo.qualification,
@@ -388,14 +432,29 @@ export default function TodayOP() {
 
                                                 const count = visitDates.size;
                                                 return (
-                                                    <span style={{
-                                                        background: count > 1 ? '#eff6ff' : '#f0fdf4',
-                                                        color: count > 1 ? '#1d4ed8' : '#166534',
-                                                        border: `1px solid ${count > 1 ? '#93c5fd' : '#bbf7d0'}`,
-                                                        borderRadius: 5, padding: '2px 8px', fontWeight: 800, fontSize: '0.72rem'
-                                                    }}>
-                                                        {count} {count > 1 ? 'Visits' : 'Visit'}
-                                                    </span>
+                                                    <button
+                                                        onClick={() => setModalVisitDates(p)}
+                                                        title={`Click to view ${count} visit date history for ${p.name || p.patient_name || 'Patient'}`}
+                                                        style={{
+                                                            background: count > 1 ? '#eff6ff' : '#f0fdf4',
+                                                            color: count > 1 ? '#1d4ed8' : '#166534',
+                                                            border: `1px solid ${count > 1 ? '#93c5fd' : '#bbf7d0'}`,
+                                                            borderRadius: 6,
+                                                            padding: '3px 10px',
+                                                            fontWeight: 800,
+                                                            fontSize: '0.75rem',
+                                                            cursor: 'pointer',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            gap: 4,
+                                                            transition: 'all 0.2s ease',
+                                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                                        }}
+                                                        onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.boxShadow = '0 2px 5px rgba(0,0,0,0.12)'; }}
+                                                        onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.05)'; }}
+                                                    >
+                                                        <span>📅</span> {count} {count > 1 ? 'Visits' : 'Visit'}
+                                                    </button>
                                                 )
                                             })()}
                                         </td>
@@ -563,8 +622,8 @@ export default function TodayOP() {
                         <div style={{ width: 220, borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', background: '#f8fafc' }}>
                             <div style={{ padding: '14px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div>
-                                    <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Prescriptions</div>
-                                    <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{rxModal.patientRxs.length} Records</div>
+                                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>📅 Visit Dates History</div>
+                                    <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 700 }}>{rxModal.patientRxs.length} Visit Record{rxModal.patientRxs.length !== 1 ? 's' : ''}</div>
                                 </div>
                                 <button onClick={() => setModalPatient(null)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '1.5rem', cursor: 'pointer', lineHeight: 1 }}>×</button>
                             </div>
@@ -741,6 +800,106 @@ export default function TodayOP() {
                     </div>
                 </div>
             )}
+
+            {/* ── Compact Visit Dates History Modal ── */}
+            {modalVisitDates && (() => {
+                const patient = modalVisitDates
+                const visits = (visitDatesHistory && visitDatesHistory.length > 0)
+                    ? [...visitDatesHistory].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+                    : [{
+                        id: 'current',
+                        mrn: patient.mrn,
+                        date: (patient.registration_date || patient.date || new Date().toLocaleDateString('en-CA')).split(' ')[0],
+                        doctor_name: patient.doctor_name || 'Unassigned'
+                    }]
+
+                return (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                        <div style={{
+                            background: 'white',
+                            width: '100%',
+                            maxWidth: '440px',
+                            borderRadius: '12px',
+                            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+                            overflow: 'hidden',
+                            animation: 'modalAppear 0.2s ease-out'
+                        }}>
+                            <div style={{
+                                padding: '16px 20px',
+                                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                                color: 'white',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>📅 Patient Visit Dates</h3>
+                                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 3 }}>
+                                        {patient.name || patient.patient_name} (MRN: <strong style={{ color: '#60a5fa' }}>{patient.mrn}</strong>)
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setModalVisitDates(null)}
+                                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '1.8rem', cursor: 'pointer', fontWeight: 'bold', lineHeight: 1, padding: '0 4px' }}
+                                >×</button>
+                            </div>
+
+                            <div style={{ padding: '16px 20px', maxHeight: '55vh', overflowY: 'auto' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.5px' }}>
+                                    Visit Dates History ({visits.length} Visit{visits.length !== 1 ? 's' : ''})
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {visits.map((v, idx) => (
+                                        <div key={idx} style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justify: 'space-between',
+                                            padding: '12px 14px',
+                                            background: '#f8fafc',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 8
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                <div style={{
+                                                    width: 32, height: 32, borderRadius: '50%',
+                                                    background: '#eff6ff', color: '#2563eb',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontWeight: 800, fontSize: '0.8rem', border: '1px solid #bfdbfe'
+                                                }}>
+                                                    #{idx + 1}
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                                                        📅 {v.date}
+                                                    </div>
+                                                    {v.doctor_name && (
+                                                        <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: 2 }}>
+                                                            Doctor: <strong>Dr. {v.doctor_name}</strong>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div style={{ padding: '12px 20px', background: '#f1f5f9', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+                                <button
+                                    onClick={() => setModalVisitDates(null)}
+                                    style={{
+                                        padding: '8px 18px', background: '#475569', color: 'white',
+                                        border: 'none', borderRadius: 6, fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer'
+                                    }}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            })()}
         </div>
     )
 }

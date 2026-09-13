@@ -51,6 +51,22 @@ const StaffDashboard = () => {
     const [modalPatient, setModalPatient] = useState(null)
     const [modalPatientHistory, setModalPatientHistory] = useState([])
     const [selectedRxIndex, setSelectedRxIndex] = useState(0)
+    const [modalVisitDates, setModalVisitDates] = useState(null)
+    const [visitDatesHistory, setVisitDatesHistory] = useState([])
+
+    useEffect(() => {
+        if (!modalVisitDates) {
+            setVisitDatesHistory([])
+            return
+        }
+        const fetchVisitDates = async () => {
+            try {
+                const history = await databaseService.getPrescriptionsByMRN(modalVisitDates.mrn)
+                if (history) setVisitDatesHistory(history)
+            } catch (err) { console.error(err) }
+        }
+        fetchVisitDates()
+    }, [modalVisitDates])
 
     const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'))
     const [filterDoctor, setFilterDoctor] = useState('ALL DOCTORS')
@@ -470,12 +486,28 @@ const StaffDashboard = () => {
                                                     {(() => {
                                                         const pRx = allPrescriptions.filter(rx => String(rx.mrn).trim() === String(p.mrn).trim());
                                                         const dates = new Set(pRx.map(rx => rx.date).filter(Boolean));
-                                                        const vCount = dates.size + (parseInt(p.historic_visits) || 0);
+                                                        const vCount = Math.max(1, dates.size + (parseInt(p.historic_visits) || 0));
                                                         const vColor = vCount === 1 ? '#15803d' : vCount === 2 ? '#1d4ed8' : '#b45309';
                                                         const vBg = vCount === 1 ? '#f0fdf4' : vCount === 2 ? '#eff6ff' : '#fef3c7';
                                                         return (
-                                                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                                <span style={{ display: 'flex', width: 22, height: 22, alignItems: 'center', justifyContent: 'center', background: vBg, border: `1.5px solid ${vColor}80`, borderRadius: '50%', fontWeight: 900, fontSize: '0.7rem', color: vColor }}>{vCount}</span>
+                                                            <div
+                                                                onClick={() => setModalVisitDates(p)}
+                                                                title={`Click to view ${vCount} visit date history for ${p.name || 'Patient'}`}
+                                                                style={{
+                                                                    display: 'inline-flex',
+                                                                    flexDirection: 'column',
+                                                                    alignItems: 'center',
+                                                                    cursor: 'pointer',
+                                                                    padding: '2px 4px',
+                                                                    borderRadius: 6,
+                                                                    transition: 'all 0.2s ease',
+                                                                    userSelect: 'none'
+                                                                }}
+                                                                onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.1)'; }}
+                                                                onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+                                                            >
+                                                                <span style={{ display: 'flex', width: 24, height: 24, alignItems: 'center', justifyContent: 'center', background: vBg, border: `1.5px solid ${vColor}80`, borderRadius: '50%', fontWeight: 900, fontSize: '0.75rem', color: vColor, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>{vCount}</span>
+                                                                <span style={{ fontSize: '0.55rem', color: vColor, fontWeight: 800, textTransform: 'uppercase', marginTop: 1 }}>visit{vCount > 1 ? 's' : ''}</span>
                                                             </div>
                                                         )
                                                     })()}
@@ -875,6 +907,106 @@ const StaffDashboard = () => {
                     </div>
                 </div>
             )}
+
+            {/* ── Compact Visit Dates History Modal ── */}
+            {modalVisitDates && (() => {
+                const patient = modalVisitDates
+                const visits = (visitDatesHistory && visitDatesHistory.length > 0)
+                    ? [...visitDatesHistory].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+                    : [{
+                        id: 'current',
+                        mrn: patient.mrn,
+                        date: (patient.registration_date || patient.date || new Date().toLocaleDateString('en-CA')).split(' ')[0],
+                        doctor_name: patient.doctor_name || 'Unassigned'
+                    }]
+
+                return (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                        <div style={{
+                            background: 'white',
+                            width: '100%',
+                            maxWidth: '440px',
+                            borderRadius: '12px',
+                            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+                            overflow: 'hidden',
+                            animation: 'modalAppear 0.2s ease-out'
+                        }}>
+                            <div style={{
+                                padding: '16px 20px',
+                                background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                                color: 'white',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center'
+                            }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>📅 Patient Visit Dates</h3>
+                                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 3 }}>
+                                        {patient.name || patient.patient_name} (MRN: <strong style={{ color: '#60a5fa' }}>{patient.mrn}</strong>)
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setModalVisitDates(null)}
+                                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '1.8rem', cursor: 'pointer', fontWeight: 'bold', lineHeight: 1, padding: '0 4px' }}
+                                >×</button>
+                            </div>
+
+                            <div style={{ padding: '16px 20px', maxHeight: '55vh', overflowY: 'auto' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.5px' }}>
+                                    Visit Dates History ({visits.length} Visit{visits.length !== 1 ? 's' : ''})
+                                </div>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {visits.map((v, idx) => (
+                                        <div key={idx} style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justify: 'space-between',
+                                            padding: '12px 14px',
+                                            background: '#f8fafc',
+                                            border: '1px solid #e2e8f0',
+                                            borderRadius: 8
+                                        }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                <div style={{
+                                                    width: 32, height: 32, borderRadius: '50%',
+                                                    background: '#eff6ff', color: '#2563eb',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontWeight: 800, fontSize: '0.8rem', border: '1px solid #bfdbfe'
+                                                }}>
+                                                    #{idx + 1}
+                                                </div>
+                                                <div>
+                                                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                                                        📅 {v.date}
+                                                    </div>
+                                                    {v.doctor_name && (
+                                                        <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: 2 }}>
+                                                            Doctor: <strong>Dr. {v.doctor_name}</strong>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div style={{ padding: '12px 20px', background: '#f1f5f9', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+                                <button
+                                    onClick={() => setModalVisitDates(null)}
+                                    style={{
+                                        padding: '8px 18px', background: '#475569', color: 'white',
+                                        border: 'none', borderRadius: 6, fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer'
+                                    }}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )
+            })()}
 
             <style dangerouslySetInnerHTML={{
                 __html: `

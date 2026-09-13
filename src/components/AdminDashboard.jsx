@@ -45,6 +45,7 @@ const AdminDashboard = ({ onLogout }) => {
     if (tab && tab !== activeTab) {
       setActiveTab(tab);
     }
+    setSearchTerm('');
   }, [location.search, activeTab]);
 
   const [medicines, setMedicines] = useState([])
@@ -56,6 +57,8 @@ const AdminDashboard = ({ onLogout }) => {
   const [modalPatient, setModalPatient] = useState(null)  // patient object or null
   const [selectedRxIndex, setSelectedRxIndex] = useState(0)
   const [modalPatientHistory, setModalPatientHistory] = useState([])
+  const [modalVisitDates, setModalVisitDates] = useState(null)
+  const [visitDatesHistory, setVisitDatesHistory] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [isDoctorEditModalOpen, setIsDoctorEditModalOpen] = useState(false)
   const [editingDoctorName, setEditingDoctorName] = useState('')
@@ -147,7 +150,7 @@ const AdminDashboard = ({ onLogout }) => {
 
   // --- Optimization: Memoized Monthly Report Data ---
   const monthlyReportData = React.useMemo(() => {
-    if (!selectedMonth) return { rows: [], grandTotalDr: 0, grandTotalMed: 0, grandTotalLab: 0, grandTotalLabGiven: 0, grandTotalLabProfit: 0, year: '', month: '' };
+    if (!selectedMonth) return { rows: [], grandTotalDr: 0, grandTotalMed: 0, grandTotalLab: 0, grandTotalLabGiven: 0, grandTotalLabProfit: 0, grandTotalLabPatients: 0, year: '', month: '' };
 
     const year = parseInt(selectedMonth.split('-')[0]);
     const month = parseInt(selectedMonth.split('-')[1]);
@@ -163,11 +166,11 @@ const AdminDashboard = ({ onLogout }) => {
       return `DR. ${clean}`;
     };
 
-    let grandTotalDr = 0, grandTotalMed = 0, grandTotalLab = 0, grandTotalLabGiven = 0, grandTotalLabProfit = 0;
+    let grandTotalDr = 0, grandTotalMed = 0, grandTotalLab = 0, grandTotalLabGiven = 0, grandTotalLabProfit = 0, grandTotalLabPatients = 0;
 
     monthRx.forEach(rx => {
       const dName = formatName(rx.doctor_name);
-      if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0, labGiven: 0 };
+      if (!docGroups[dName]) docGroups[dName] = { count: 0, dr: 0, med: 0, lab: 0, labGiven: 0, labPatients: 0 };
 
       const drVal = rx.dr_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.dr_fees) || 0);
       const medVal = rx.med_fees?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.med_fees) || 0);
@@ -179,6 +182,7 @@ const AdminDashboard = ({ onLogout }) => {
       docGroups[dName].med += medVal;
       docGroups[dName].lab += labVal;
       docGroups[dName].labGiven += labGivenVal;
+      if (labVal > 0 || labGivenVal > 0) docGroups[dName].labPatients++;
 
       grandTotalDr += drVal;
       grandTotalMed += medVal;
@@ -194,10 +198,12 @@ const AdminDashboard = ({ onLogout }) => {
       const profitKey = `${selectedMonth}-${dName}`;
       const labProfitValue = parseFloat(monthlyLabProfits[profitKey]) || 0;
       grandTotalLabProfit += labProfitValue;
+      grandTotalLabPatients += g.labPatients;
 
       rows.push({
         doctorName: dName,
         count: g.count,
+        labPatients: g.labPatients,
         drFees: g.dr,
         medFees: g.med,
         labCash: g.lab,
@@ -207,7 +213,7 @@ const AdminDashboard = ({ onLogout }) => {
       });
     });
 
-    return { rows, grandTotalDr, grandTotalMed, grandTotalLab, grandTotalLabGiven, grandTotalLabProfit, year, month };
+    return { rows, grandTotalDr, grandTotalMed, grandTotalLab, grandTotalLabGiven, grandTotalLabProfit, grandTotalLabPatients, year, month };
   }, [allPrescriptions, selectedMonth, monthlyLabProfits]);
 
   // --- Granular Fetchers for Better Performance ---
@@ -451,6 +457,22 @@ const AdminDashboard = ({ onLogout }) => {
     fetchHistory();
   }, [modalPatient]);
 
+  useEffect(() => {
+    if (!modalVisitDates) {
+      setVisitDatesHistory([]);
+      return;
+    }
+    const fetchVisitDates = async () => {
+      try {
+        const history = await databaseService.getPrescriptionsByMRN(modalVisitDates.mrn);
+        setVisitDatesHistory(history || []);
+      } catch (err) {
+        console.error('Failed to fetch visit dates history:', err);
+      }
+    };
+    fetchVisitDates();
+  }, [modalVisitDates]);
+
   const handleAssignDoctor = async (mrn, patientName, doctorName, rxId = null) => {
     setIsSyncing(true);
     // Normalize doctor name to "DR. NAME" to ensure consistency in reports
@@ -518,6 +540,7 @@ const AdminDashboard = ({ onLogout }) => {
       category: ''
     }
     setMedicines([newMed, ...medicines]);
+    setSearchTerm('');
   }
 
   const handleUpdateMed = (id, field, value) => {
@@ -978,8 +1001,10 @@ const AdminDashboard = ({ onLogout }) => {
   };
 
   const filteredMedicines = React.useMemo(() => {
-    const searchLower = debouncedSearchTerm.toLowerCase();
+    const searchLower = debouncedSearchTerm.trim().toLowerCase();
+    if (!searchLower) return medicines;
     return medicines.filter(m =>
+      (!m.name && !m.composition) || // Always include unedited new rows
       m.name?.toLowerCase().includes(searchLower) ||
       m.composition?.toLowerCase().includes(searchLower)
     );
@@ -1198,7 +1223,7 @@ const AdminDashboard = ({ onLogout }) => {
                           'System Configuration'}
               </h1>
               <p>
-                {activeTab === 'medicines' ? `${medicines.length} Rows found` :
+                {activeTab === 'medicines' ? `${filteredMedicines.length} ${filteredMedicines.length === medicines.length ? 'Rows found' : `Rows found (filtered from ${medicines.length})`}` :
                   activeTab === 'patients' ? `${patients.length} Patients registered` :
                     activeTab === 'todayop' || activeTab === 'fees' ? (() => {
                       return `${todayOPList.length} Patients · ${new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`;
@@ -1355,7 +1380,8 @@ const AdminDashboard = ({ onLogout }) => {
                     onClick={async () => {
                       setIsSyncing(true);
                       try {
-                        const result = await databaseService.syncMedicines(medicines);
+                        const validMeds = medicines.filter(m => m.name && m.name.trim() !== '');
+                        const result = await databaseService.syncMedicines(validMeds);
                         if (result) alert('Medicines saved successfully!');
                         else alert('Failed to save medicines.');
                       } catch (err) {
@@ -1663,11 +1689,27 @@ const AdminDashboard = ({ onLogout }) => {
                           }
 
                           <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '0 6px' }}>
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-                              <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: visitColor.bg, border: `2px solid ${visitColor.border}`, borderRadius: '50%', fontWeight: 900, fontSize: '0.85rem', color: visitColor.text, lineHeight: 1 }}>
+                            <div
+                              onClick={() => setModalVisitDates(entry)}
+                              title={`Click to view ${visitCount} visit date history for ${entry.name || entry.patient_name || 'Patient'}`}
+                              style={{
+                                display: 'inline-flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 1,
+                                cursor: 'pointer',
+                                padding: '3px 6px',
+                                borderRadius: 8,
+                                transition: 'all 0.2s ease',
+                                userSelect: 'none'
+                              }}
+                              onMouseOver={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.background = '#f1f5f9'; }}
+                              onMouseOut={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = 'transparent'; }}
+                            >
+                              <span style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: visitColor.bg, border: `2px solid ${visitColor.border}`, borderRadius: '50%', fontWeight: 900, fontSize: '0.85rem', color: visitColor.text, lineHeight: 1, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
                                 {visitCount}
                               </span>
-                              <span style={{ fontSize: '0.58rem', color: '#94a3b8', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase' }}>visit{visitCount > 1 ? 's' : ''}</span>
+                              <span style={{ fontSize: '0.58rem', color: visitColor.text, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase' }}>visit{visitCount > 1 ? 's' : ''}</span>
                             </div>
                           </td>
                           <td style={{ textAlign: 'center' }}>
@@ -2189,9 +2231,9 @@ const AdminDashboard = ({ onLogout }) => {
                               <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                                 {visitsCount > 0 && (
                                   <button
-                                    onClick={() => { setModalPatient(p); setSelectedRxIndex(0); }}
+                                    onClick={() => setModalVisitDates(p)}
                                     style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                    title="View Prescription History"
+                                    title="View Visit Dates History"
                                   >
                                     📋 {visitsCount}
                                   </button>
@@ -2298,8 +2340,9 @@ const AdminDashboard = ({ onLogout }) => {
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Visits</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Dr Fees</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Medicine</th>
-                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #7c3aed; font-size: 0.8rem; text-transform: uppercase;">Lab Pts</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Given</th>
+                                <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Cash</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Lab Profit</th>
                                 <th style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; background: #f8fafc; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Total</th>
                               </tr>
@@ -2311,8 +2354,9 @@ const AdminDashboard = ({ onLogout }) => {
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.count}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.medFees.toLocaleString()}</td>
-                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #7c3aed; font-weight: bold;">${d.labPatients || '-'}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${d.labGiven ? '₹' + d.labGiven.toLocaleString() : '-'}</td>
+                                  <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labCash.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                   <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                 </tr>
@@ -2324,8 +2368,9 @@ const AdminDashboard = ({ onLogout }) => {
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">${monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
-                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #7c3aed;">${monthlyReportData.grandTotalLabPatients || 0}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
+                                <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
                                 <td style="border: 1px solid #e2e8f0; padding: 12px; text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                               </tr>
@@ -2401,8 +2446,9 @@ const AdminDashboard = ({ onLogout }) => {
                                     <th style="text-align: center;">Visits</th>
                                     <th style="text-align: center;">Dr Fees</th>
                                     <th style="text-align: center;">Medicine</th>
-                                    <th style="text-align: center;">Lab Cash</th>
+                                    <th style="text-align: center; color: #7c3aed;">Lab Pts</th>
                                     <th style="text-align: center;">Lab Given</th>
+                                    <th style="text-align: center;">Lab Cash</th>
                                     <th style="text-align: center;">Lab Profit</th>
                                     <th style="text-align: center;">Total</th>
                                   </tr>
@@ -2414,8 +2460,9 @@ const AdminDashboard = ({ onLogout }) => {
                                       <td style="text-align: center;">${d.count}</td>
                                       <td style="text-align: center;">₹${d.drFees.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${d.medFees.toLocaleString()}</td>
-                                      <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
+                                      <td style="text-align: center; color: #7c3aed; font-weight: bold;">${d.labPatients || '-'}</td>
                                       <td style="text-align: center;">${d.labGiven ? '₹' + d.labGiven.toLocaleString() : '-'}</td>
+                                      <td style="text-align: center;">₹${d.labCash.toLocaleString()}</td>
                                       <td style="text-align: center;">₹${d.labProfit.toLocaleString()}</td>
                                       <td style="text-align: center; font-weight: bold;">₹${d.total.toLocaleString()}</td>
                                     </tr>
@@ -2427,8 +2474,9 @@ const AdminDashboard = ({ onLogout }) => {
                                     <td style="text-align: center;">${monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalDr.toLocaleString()}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalMed.toLocaleString()}</td>
-                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                                    <td style="text-align: center; color: #7c3aed;">${monthlyReportData.grandTotalLabPatients || 0}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
+                                    <td style="text-align: center;">₹${monthlyReportData.grandTotalLab.toLocaleString()}</td>
                                     <td style="text-align: center;">₹${monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
                                     <td style="text-align: center; color: #b91c1c;">₹${(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                                   </tr>
@@ -2463,8 +2511,9 @@ const AdminDashboard = ({ onLogout }) => {
                       <th style={{ textAlign: 'center', padding: '15px' }}>Monthly Visits</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#16a34a' }}>Dr Fees (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#9333ea' }}>Medicine Fees (₹)</th>
-                      <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#7c3aed' }}>Lab Patients</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#2563eb' }}>Lab Given</th>
+                      <th style={{ textAlign: 'center', padding: '15px', color: '#ea580c' }}>Lab Cash (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#0891b2' }}>Lab Profit (₹)</th>
                       <th style={{ textAlign: 'center', padding: '15px', color: '#be123c' }}>Grand Total (₹)</th>
                     </tr>
@@ -2480,8 +2529,13 @@ const AdminDashboard = ({ onLogout }) => {
                         <td style={{ textAlign: 'center', padding: '15px', color: '#475569', fontWeight: 700 }}>{d.count || '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
-                        <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: d.labPatients > 0 ? '#f5f3ff' : '#f8fafc', border: `1px solid ${d.labPatients > 0 ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: '20px', padding: '3px 12px', fontWeight: 800, color: d.labPatients > 0 ? '#7c3aed' : '#94a3b8', fontSize: '0.9rem', minWidth: '36px' }}>
+                            {d.labPatients > 0 ? d.labPatients : '-'}
+                          </span>
+                        </td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#2563eb', fontWeight: 700 }}>{d.labGiven ? `₹${d.labGiven.toLocaleString()}` : '-'}</td>
+                        <td style={{ textAlign: 'center', padding: '15px', color: '#ea580c', fontWeight: 700 }}>{d.labCash ? `₹${d.labCash.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px' }}>
                           {(() => {
                             const profitKey = `${selectedMonth}-${d.doctorName}`;
@@ -2564,8 +2618,9 @@ const AdminDashboard = ({ onLogout }) => {
                       <td style={{ textAlign: 'center', padding: '20px 15px' }}>{monthlyReportData.rows.reduce((s, d) => s + d.count, 0)}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#4ade80' }}>₹{monthlyReportData.grandTotalDr.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c084fc' }}>₹{monthlyReportData.grandTotalMed.toLocaleString()}</td>
-                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{monthlyReportData.grandTotalLab.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#c4b5fd' }}>{monthlyReportData.grandTotalLabPatients || 0}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#93c5fd' }}>₹{monthlyReportData.grandTotalLabGiven.toLocaleString()}</td>
+                      <td style={{ textAlign: 'center', padding: '20px 15px', color: '#fdba74' }}>₹{monthlyReportData.grandTotalLab.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', color: '#22d3ee' }}>₹{monthlyReportData.grandTotalLabProfit.toLocaleString()}</td>
                       <td style={{ textAlign: 'center', padding: '20px 15px', background: '#ef4444', fontSize: '1.2rem', fontWeight: 900 }}>₹{(monthlyReportData.grandTotalDr + monthlyReportData.grandTotalMed + monthlyReportData.grandTotalLab + monthlyReportData.grandTotalLabGiven + monthlyReportData.grandTotalLabProfit).toLocaleString()}</td>
                     </tr>
@@ -2596,21 +2651,21 @@ const AdminDashboard = ({ onLogout }) => {
         </div>
       </main >
 
-      {/* ── Prescription History Modal ── */}
+      {/* ── Prescription & Visit History Modal ── */}
       {
         modalPatient && (() => {
-          // Filter out auto-created stubs (assigned doctor only, no real prescription content)
-          const patientRxs = modalPatientHistory.filter(rx => {
-            let meds = [];
-            try { meds = JSON.parse(rx.medicines || '[]'); } catch (e) { }
-            const hasMedicines = Array.isArray(meds) && meds.length > 0;
-            const hasDiagnosis = !!(rx.diagnosis && rx.diagnosis.trim());
-            const hasComplaints = !!(rx.complaints && rx.complaints.trim());
-            const hasAdvice = !!(rx.advice && rx.advice.trim());
-            // Keep only real prescriptions that have at least some content
-            return hasMedicines || hasDiagnosis || hasComplaints || hasAdvice;
-          });
-          const activeRx = patientRxs[selectedRxIndex];
+          // Include all visit dates for this patient
+          let patientRxs = (modalPatientHistory && modalPatientHistory.length > 0)
+            ? [...modalPatientHistory].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+            : [{
+              id: 'current',
+              mrn: modalPatient.mrn,
+              date: (modalPatient.registration_date || modalPatient.date || selectedDate || new Date().toLocaleDateString('en-CA')).split(' ')[0],
+              doctor_name: modalPatient.doctor_name || 'Unassigned',
+              patient_name: modalPatient.name || modalPatient.patient_name || ''
+            }];
+
+          const activeRx = patientRxs[selectedRxIndex] || patientRxs[0];
           let previewData = null;
           if (activeRx) {
             const docInfo = users.find(u => u.name === activeRx.doctor_name) || {};
@@ -2626,10 +2681,10 @@ const AdminDashboard = ({ onLogout }) => {
               age: modalPatient.age || '',
               gender: modalPatient.sex || '',
               phone: modalPatient.phone || '',
-              weight: vitals.weight || '',
-              bp: vitals.bp || '',
-              pulse: vitals.pulse || '',
-              temp: vitals.temp || '',
+              weight: vitals.weight || modalPatient.last_weight || '',
+              bp: vitals.bp || modalPatient.last_bp || '',
+              pulse: vitals.pulse || modalPatient.last_pulse || '',
+              temp: vitals.temp || modalPatient.last_temp || '',
               complaints: activeRx.complaints || '',
               diagnosis: activeRx.diagnosis || '',
               medicines: meds,
@@ -2645,12 +2700,14 @@ const AdminDashboard = ({ onLogout }) => {
           return (
             <div className="admin-modal-overlay">
               <div className="admin-modal-content">
-                {/* Modal Left: Prescriptions List */}
+                {/* Modal Left: Visit History Dates List */}
                 <div className="admin-modal-sidebar">
                   <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', position: 'relative' }}>
                     <div>
-                      <h3 style={{ margin: 0 }}>Prescriptions</h3>
-                      <span className="count-badge">{patientRxs.length} Records</span>
+                      <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>📅 Visit Dates History</h3>
+                      <span className="count-badge" style={{ background: '#3b82f6', color: 'white', fontWeight: 800 }}>
+                        {patientRxs.length} Visit{patientRxs.length !== 1 ? 's' : ''} Record
+                      </span>
                     </div>
                     <button className="modal-header-close" onClick={() => setModalPatient(null)} style={{
                       background: 'none',
@@ -2860,6 +2917,110 @@ const AdminDashboard = ({ onLogout }) => {
                   ) : (
                     <div className="no-preview-selected">Select a prescription from the sidebar to view it.</div>
                   )}
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      }
+
+      {/* ── Compact Visit Dates History Modal ── */}
+      {
+        modalVisitDates && (() => {
+          const patient = modalVisitDates;
+          const visits = (visitDatesHistory && visitDatesHistory.length > 0)
+            ? [...visitDatesHistory].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+            : [{
+              id: 'current',
+              mrn: patient.mrn,
+              date: (patient.registration_date || patient.date || selectedDate || new Date().toLocaleDateString('en-CA')).split(' ')[0],
+              doctor_name: patient.doctor_name || 'Unassigned'
+            }];
+
+          return (
+            <div className="admin-modal-overlay" style={{ zIndex: 3000 }}>
+              <div style={{
+                background: 'white',
+                width: '100%',
+                maxWidth: '440px',
+                borderRadius: '12px',
+                boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+                overflow: 'hidden',
+                animation: 'modalAppear 0.2s ease-out'
+              }}>
+                <div style={{
+                  padding: '16px 20px',
+                  background: 'linear-gradient(135deg, #1e293b, #0f172a)',
+                  color: 'white',
+                  display: 'flex',
+                  justify: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#ffffff' }}>📅 Patient Visit Dates</h3>
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: 3 }}>
+                      {patient.name || patient.patient_name} (MRN: <strong style={{ color: '#60a5fa' }}>{patient.mrn}</strong>)
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setModalVisitDates(null)}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '1.8rem', cursor: 'pointer', fontWeight: 'bold', lineHeight: 1, padding: '0 4px' }}
+                  >×</button>
+                </div>
+
+                <div style={{ padding: '16px 20px', maxHeight: '55vh', overflowY: 'auto' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.5px' }}>
+                    Visit Dates History ({visits.length} Visit{visits.length !== 1 ? 's' : ''})
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {visits.map((v, idx) => (
+                      <div key={idx} style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justify: 'space-between',
+                        padding: '12px 14px',
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{
+                            width: 32, height: 32, borderRadius: '50%',
+                            background: '#eff6ff', color: '#2563eb',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 800, fontSize: '0.8rem', border: '1px solid #bfdbfe'
+                          }}>
+                            #{idx + 1}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                              📅 {v.date}
+                            </div>
+                            {v.doctor_name && (
+                              <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: 2 }}>
+                                Doctor: <strong>Dr. {v.doctor_name}</strong>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ padding: '12px 20px', background: '#f1f5f9', borderTop: '1px solid #e2e8f0', textAlign: 'right' }}>
+                  <button
+                    onClick={() => setModalVisitDates(null)}
+                    style={{
+                      padding: '8px 18px', background: '#475569', color: 'white',
+                      border: 'none', borderRadius: 6, fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
             </div>
