@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
-import { printHeaderSlip } from '../utils/printUtils'
+import { printHeaderSlip, printPrescription } from '../utils/printUtils'
 
 const sortPatientsByMRN = (list) => {
   return [...list].sort((a, b) => {
@@ -2231,9 +2231,9 @@ const AdminDashboard = ({ onLogout }) => {
                               <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                                 {visitsCount > 0 && (
                                   <button
-                                    onClick={() => setModalVisitDates(p)}
+                                    onClick={() => { setModalPatient(p); setSelectedRxIndex(0); }}
                                     style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                    title="View Visit Dates History"
+                                    title="View Prescription"
                                   >
                                     📋 {visitsCount}
                                   </button>
@@ -2879,32 +2879,7 @@ const AdminDashboard = ({ onLogout }) => {
                           <button className="print-btn" onClick={() => {
                             const paperEl = document.getElementById('prescription-paper');
                             if (!paperEl) { alert('Prescription preview element not found.'); return; }
-                            const printWindow = window.open('', '_blank', 'width=900,height=800');
-                            printWindow.document.write(
-                              '<!DOCTYPE html>' +
-                              '<html>' +
-                              '<head>' +
-                              '<meta charset="utf-8" />' +
-                              '<title>Prescription Preview</title>' +
-                              '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />' +
-                              '<style>' +
-                              '@page { margin: 0; }' +
-                              '* { box-sizing: border-box; margin: 0; padding: 0; }' +
-                              'body { background: #e8edf2; font-family: \'Noto Sans Tamil\', sans-serif; }' +
-                              '#print-toolbar { position: sticky; top: 0; z-index: 100; background: #1565C0; display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; color: white; }' +
-                              '#print-toolbar button { background: white; color: #1565C0; border: none; padding: 8px 22px; border-radius: 6px; font-weight: 700; cursor: pointer; }' +
-                              '#paper-wrapper { display: flex; justify-content: center; padding: 30px; }' +
-                              '#prescription-paper { width: 210mm; min-height: 297mm; background: white; padding: 1.2cm 1.2cm; box-shadow: 0 4px 30px rgba(0,0,0,0.1); }' +
-                              '@media print { #print-toolbar { display: none !important; } body { background: white !important; } #paper-wrapper { padding: 0 !important; } #prescription-paper { box-shadow: none !important; padding-top: 1cm !important; margin: 0 !important; } }' +
-                              '</style>' +
-                              '</head>' +
-                              '<body>' +
-                              '<div id="print-toolbar"><span>📄 Prescription Preview</span><button onclick="window.print()">🖨 Print</button></div>' +
-                              '<div id="paper-wrapper">' + paperEl.outerHTML + '</div>' +
-                              '</body>' +
-                              '</html>'
-                            );
-                            printWindow.document.close();
+                            printPrescription(paperEl);
                           }}>🖨️ Print Prescription</button>
                         </div>
                       </div>
@@ -3004,8 +2979,6 @@ const AdminDashboard = ({ onLogout }) => {
                             )}
                           </div>
                         </div>
-
-
                       </div>
                     ))}
                   </div>
@@ -4136,6 +4109,15 @@ const AdminDashboard = ({ onLogout }) => {
 
         /* ── Responsive Styling ── */
         @media (max-width: 768px) {
+          .admin-modal-overlay {
+            padding: 8px !important;
+          }
+          .filter-bar {
+            overflow-x: auto !important;
+            flex-wrap: nowrap !important;
+            max-width: 100% !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
           .registration-modal-content {
             height: auto;
             max-height: 95vh;

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { databaseService } from '../services/databaseService'
 import PrescriptionPreview from './PrescriptionPreview'
-import { printHeaderSlip } from '../utils/printUtils'
+import { printHeaderSlip, printPrescription } from '../utils/printUtils'
 
 const sortPatientsByMRN = (list) =>
     [...list].sort((a, b) => {
@@ -666,34 +666,7 @@ export default function TodayOP() {
                                                 onClick={async () => {
                                                     const paperEl = document.getElementById('prescription-paper');
                                                     if (!paperEl) { alert('Preview element not found.'); return; }
-                                                    const printWindow = window.open('', '_blank', 'width=1000,height=900');
-                                                    if (!printWindow) { alert('Popup blocked! Please allow popups for this site.'); return; }
-                                                    const extraStyles = Array.from(paperEl.parentElement.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
-                                                    printWindow.document.write(`
-                                                      <!DOCTYPE html>
-                                                      <html>
-                                                        <head>
-                                                          <meta charset="utf-8" />
-                                                          <title>Prescription - ${rxModal.previewData.patientName}</title>
-                                                          <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />
-                                                          <style>
-                                                            * { box-sizing: border-box; margin: 0; padding: 0; }
-                                                            body { background: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
-                                                            #paper-wrapper { padding: 0; display: flex; justify-content: center; width: 100%; }
-                                                            #prescription-paper { width: 210mm; min-height: 297mm; background: white; box-shadow: none; border: none; border-radius: 0; }
-                                                            ${extraStyles}
-                                                          </style>
-                                                        </head>
-                                                        <body>
-                                                          <div id="paper-wrapper">${paperEl.outerHTML}</div>
-                                                          <script>
-                                                            window.focus();
-                                                            window.onload = function() { window.print(); window.close(); }
-                                                          </script>
-                                                        </body>
-                                                      </html>
-                                                    `);
-                                                    printWindow.document.close();
+                                                    printPrescription(paperEl);
                                                 }}
                                                 style={{ padding: '6px 12px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
                                             >
@@ -854,7 +827,7 @@ export default function TodayOP() {
                                         <div key={idx} style={{
                                             display: 'flex',
                                             alignItems: 'center',
-                                            justify: 'space-between',
+                                            justifyContent: 'space-between',
                                             padding: '12px 14px',
                                             background: '#f8fafc',
                                             border: '1px solid #e2e8f0',

@@ -1,11 +1,74 @@
-export const printHeaderSlip = (data) => {
-  if (!data) return;
+export const printHTML = (htmlContent) => {
+  if (!htmlContent) return;
 
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
+  // On Mobile or Desktop, use iframe printing as primary mechanism to prevent popup blocking
+  let iframe = document.getElementById('nexus-print-iframe');
+  if (iframe) {
+    try { iframe.remove(); } catch (e) { }
+  }
+
+  iframe = document.createElement('iframe');
+  iframe.id = 'nexus-print-iframe';
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0px';
+  iframe.style.height = '0px';
+  iframe.style.border = 'none';
+  iframe.style.visibility = 'hidden';
+  iframe.style.zIndex = '-9999';
+
+  document.body.appendChild(iframe);
+
+  try {
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(htmlContent);
+    doc.close();
+
+    const doPrint = () => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (err) {
+        console.error('Iframe print error, attempting fallback window:', err);
+        fallbackWindowPrint(htmlContent);
+      }
+    };
+
+    // Give browser time to load fonts, CSS and render layout before print
+    if (isMobile) {
+      setTimeout(doPrint, 500);
+    } else {
+      setTimeout(doPrint, 300);
+    }
+  } catch (err) {
+    console.error('Iframe document write error:', err);
+    fallbackWindowPrint(htmlContent);
+  }
+};
+
+const fallbackWindowPrint = (htmlContent) => {
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
-    alert('Popup blocked! Please allow popups for this site.');
+    alert('Printing requires popups enabled or print permission. Please allow popups for this site.');
     return;
   }
+  printWindow.document.open();
+  printWindow.document.write(htmlContent);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => {
+    try {
+      printWindow.print();
+    } catch (e) { }
+  }, 400);
+};
+
+export const printHeaderSlip = (data) => {
+  if (!data) return;
 
   const mrn = data.mrn || '---';
   const rawName = data.patientName || data.patient_name || data.name || '';
@@ -24,7 +87,6 @@ export const printHeaderSlip = (data) => {
     if (dateOnly.includes('-')) {
       const parts = dateOnly.split('-');
       if (parts[0].length === 4) {
-        // YYYY-MM-DD -> DD-MM-YYYY
         formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
       } else {
         formattedDate = dateOnly;
@@ -52,6 +114,8 @@ export const printHeaderSlip = (data) => {
     <!DOCTYPE html>
     <html>
       <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Patient Header Slip - ${mrn}</title>
         <style>
           @page {
@@ -113,16 +177,46 @@ export const printHeaderSlip = (data) => {
             <span class="field-label">Patient Name</span><span class="colon">:</span><span>${patientLine}</span>
           </div>
         </div>
-        <script>
-          window.onload = function() {
-            window.print();
-            setTimeout(function() { window.close(); }, 400);
-          };
-        </script>
       </body>
     </html>
   `;
 
-  printWindow.document.write(content);
-  printWindow.document.close();
+  printHTML(content);
+};
+
+export const printPrescription = (paperElementOrHtml) => {
+  let innerHtml = typeof paperElementOrHtml === 'string'
+    ? paperElementOrHtml
+    : (paperElementOrHtml ? paperElementOrHtml.outerHTML : '');
+
+  if (!innerHtml) return;
+
+  const content = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Prescription Print</title>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@400;600;700;900&family=Inter:wght@400;600;700&display=swap" />
+        <style>
+          @page { margin: 0; size: A4 portrait; }
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { background: white; font-family: 'Noto Sans Tamil', 'Inter', sans-serif; display: flex; justify-content: center; }
+          #paper-wrapper { width: 100%; display: flex; justify-content: center; padding: 0; }
+          #prescription-paper { width: 100%; max-width: 210mm; min-height: 297mm; background: white; box-shadow: none; border: none; padding: 1cm; margin: 0; }
+          @media print {
+            body { background: white !important; }
+            #paper-wrapper { padding: 0 !important; }
+            #prescription-paper { box-shadow: none !important; width: 100% !important; padding: 1cm !important; margin: 0 !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div id="paper-wrapper">${innerHtml}</div>
+      </body>
+    </html>
+  `;
+
+  printHTML(content);
 };
