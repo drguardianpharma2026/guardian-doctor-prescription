@@ -12,25 +12,9 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const { mrn, date, id, forceCleanup } = req.query;
 
-      // --- 2-Month Data Maintenance (only when explicitly requested) ---
-      if (forceCleanup === 'true') {
-        try {
-          await sql`
-            UPDATE mrn 
-            SET historic_visits = COALESCE(historic_visits, 0) + sub.old_count
-            FROM (
-              SELECT mrn, COUNT(*) as old_count 
-              FROM prescriptions 
-              WHERE created_at < NOW() - INTERVAL '2 months'
-              GROUP BY mrn
-            ) AS sub
-            WHERE mrn.mrn = sub.mrn
-          `;
-          await sql`DELETE FROM prescriptions WHERE created_at < NOW() - INTERVAL '2 months'`;
-        } catch (maintenanceErr) {
-          console.error('Data maintenance error:', maintenanceErr);
-        }
-      }
+      // --- 2-Month Data Maintenance DISABLED: prescriptions are permanent records ---
+      // forceCleanup is intentionally ignored to preserve all prescription history.
+      // Prescription records must never be deleted due to month changes or resets.
       if (id) {
         const result = await sql`SELECT * FROM prescriptions WHERE id = ${id}`;
         return res.status(200).json(result);
@@ -47,8 +31,8 @@ export default async function handler(req, res) {
         const result = await sql`SELECT * FROM prescriptions WHERE date = ${date} ORDER BY created_at ASC`;
         return res.status(200).json(result);
       }
-      // All records: newest first, last 500
-      const result = await sql`SELECT * FROM prescriptions ORDER BY created_at DESC LIMIT 500`;
+      // All records: newest first, last 10000
+      const result = await sql`SELECT * FROM prescriptions ORDER BY created_at DESC LIMIT 10000`;
       return res.status(200).json(result);
     }
 

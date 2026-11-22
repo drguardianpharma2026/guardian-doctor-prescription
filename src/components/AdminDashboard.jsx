@@ -67,6 +67,7 @@ const AdminDashboard = ({ onLogout }) => {
   const [selectedDoctor, setSelectedDoctor] = useState(null)
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'))
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7)) // YYYY-MM
+  const [labPatientsDrillDown, setLabPatientsDrillDown] = useState(null) // { doctorName, patients: [{name, date, amount}] }
   const [clinicSettings, setClinicSettings] = useState({
     name: 'GUARDIAN PHARMACY',
     phone: '9487469098'
@@ -101,6 +102,7 @@ const AdminDashboard = ({ onLogout }) => {
     temp: '',
     registration_date: ''
   })
+  const [editPhoneError, setEditPhoneError] = useState('')
   const [opFees, setOpFees] = useState({}) // { [mrn]: { drFees: '', medFees: '', total: '' } }
   const opFeesRef = React.useRef({})
   useEffect(() => { opFeesRef.current = opFees }, [opFees])
@@ -684,6 +686,13 @@ const AdminDashboard = ({ onLogout }) => {
 
   const handleEditPatient = async (e) => {
     e.preventDefault();
+    // Phone validation
+    const digits = (editingPatient.phone || '').replace(/\D/g, '');
+    if (editingPatient.phone && digits.length !== 10) {
+      setEditPhoneError('Contact number must be exactly 10 digits.');
+      return;
+    }
+    setEditPhoneError('');
     setIsSyncing(true);
     try {
       // Find original patient to check if date changed
@@ -692,10 +701,10 @@ const AdminDashboard = ({ onLogout }) => {
 
       if (original && original.registration_date) {
         const originalDatePart = original.registration_date.split(' ')[0];
-        const newDatePart = editingPatient.registration_date.split(' ')[0];
+        const newDatePart = editingPatient.registration_date ? editingPatient.registration_date.split(' ')[0] : '';
 
         // If the date (YYYY-MM-DD) hasn't changed, preserve the full original string (including time)
-        if (originalDatePart === newDatePart) {
+        if (newDatePart && originalDatePart === newDatePart) {
           finalRegDate = original.registration_date;
         }
       }
@@ -1564,6 +1573,15 @@ const AdminDashboard = ({ onLogout }) => {
                     {todayOPList.map((entry, idx) => {
                       const visitCount = patientVisitCounts[String(entry.mrn).trim()] || 0;
                       const visitColor = visitCount === 1 ? { bg: '#f0fdf4', border: '#86efac', text: '#15803d' } : visitCount === 2 ? { bg: '#eff6ff', border: '#93c5fd', text: '#1d4ed8' } : visitCount === 3 ? { bg: '#fef3c7', border: '#fcd34d', text: '#b45309' } : { bg: '#fdf4ff', border: '#e879f9', text: '#7e22ce' };
+                      // Show Rx button only when this entry has a saved prescription with actual content
+                      const hasPrescription = !!(entry.rxId && (() => {
+                        let meds = [];
+                        try { meds = JSON.parse(entry.medicines || '[]'); } catch (e) {}
+                        return (Array.isArray(meds) && meds.length > 0) ||
+                          !!(entry.diagnosis && entry.diagnosis.trim()) ||
+                          !!(entry.complaints && entry.complaints.trim()) ||
+                          !!(entry.advice && entry.advice.trim());
+                      })());
 
                       return (
                         <tr key={entry.rxId || entry.mrn || idx} style={{ height: '28px' }} data-rx-id={entry.rxId}>
@@ -1714,6 +1732,15 @@ const AdminDashboard = ({ onLogout }) => {
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                              {hasPrescription && (
+                                <button
+                                  onClick={() => { setModalPatient(entry); setSelectedRxIndex(0); }}
+                                  style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                  title="View Prescription"
+                                >
+                                  📋 Rx
+                                </button>
+                              )}
                               <button
                                 onClick={() => printHeaderSlip({ mrn: entry.mrn, name: entry.name || entry.patient_name, age: entry.age, sex: entry.sex, date: entry.date || selectedDate })}
                                 style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: '0.72rem', color: '#166534', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}
@@ -1727,10 +1754,12 @@ const AdminDashboard = ({ onLogout }) => {
                                     age: entry.age || '',
                                     gender: entry.sex || 'Male',
                                     phone: entry.phone || '',
+                                    place: entry.place || '',
                                     weight: entry.last_weight || '',
                                     bp: entry.last_bp || '',
                                     pulse: entry.last_pulse || '',
-                                    temp: entry.last_temp || ''
+                                    temp: entry.last_temp || '',
+                                    registration_date: (entry.registration_date || '').split(' ')[0]
                                   });
                                   setIsEditModalOpen(true);
                                 }}
@@ -2530,7 +2559,36 @@ const AdminDashboard = ({ onLogout }) => {
                         <td style={{ textAlign: 'center', padding: '15px', color: '#16a34a', fontWeight: 700 }}>{d.drFees ? `₹${d.drFees.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px', color: '#9333ea', fontWeight: 700 }}>{d.medFees ? `₹${d.medFees.toLocaleString()}` : '-'}</td>
                         <td style={{ textAlign: 'center', padding: '15px' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: d.labPatients > 0 ? '#f5f3ff' : '#f8fafc', border: `1px solid ${d.labPatients > 0 ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: '20px', padding: '3px 12px', fontWeight: 800, color: d.labPatients > 0 ? '#7c3aed' : '#94a3b8', fontSize: '0.9rem', minWidth: '36px' }}>
+                          <span
+                            onClick={() => {
+                              if (d.labPatients > 0) {
+                                // Build list of lab records for this doctor in this month
+                                const monthRx = allPrescriptions.filter(rx =>
+                                  rx.date && rx.date.startsWith(selectedMonth) &&
+                                  rx.doctor_name && rx.doctor_name.trim().toUpperCase().replace(/^DR\.?\s*/i, '').trim() ===
+                                  d.doctorName.replace(/^DR\.\s*/i, '').trim()
+                                );
+                                const labRecords = monthRx
+                                  .filter(rx => {
+                                    const labVal = rx.lab_cash?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0);
+                                    const labGivenVal = rx.lab_given?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_given) || 0);
+                                    return labVal > 0 || labGivenVal > 0;
+                                  })
+                                  .map(rx => ({
+                                    name: rx.patient_name || '-',
+                                    date: rx.date || '-',
+                                    amount: (() => {
+                                      const labVal = rx.lab_cash?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_cash) || 0);
+                                      const labGivenVal = rx.lab_given?.toString().toLowerCase() === 'nil' ? 0 : (parseFloat(rx.lab_given) || 0);
+                                      return labVal + labGivenVal;
+                                    })()
+                                  }))
+                                  .sort((a, b) => new Date(a.date) - new Date(b.date));
+                                setLabPatientsDrillDown({ doctorName: d.doctorName, patients: labRecords });
+                              }
+                            }}
+                            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: d.labPatients > 0 ? '#f5f3ff' : '#f8fafc', border: `1px solid ${d.labPatients > 0 ? '#c4b5fd' : '#e2e8f0'}`, borderRadius: '20px', padding: '3px 12px', fontWeight: 800, color: d.labPatients > 0 ? '#7c3aed' : '#94a3b8', fontSize: '0.9rem', minWidth: '36px', cursor: d.labPatients > 0 ? 'pointer' : 'default' }}
+                          >
                             {d.labPatients > 0 ? d.labPatients : '-'}
                           </span>
                         </td>
@@ -3430,6 +3488,63 @@ const AdminDashboard = ({ onLogout }) => {
         )
       }
 
+      {/* ── Lab Patients Drill-Down Modal ── */}
+      {labPatientsDrillDown && (
+        <div className="admin-modal-overlay" onClick={() => setLabPatientsDrillDown(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderRadius: '12px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', width: '480px', maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ background: '#7c3aed', color: 'white', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1rem' }}>🔬 Lab Patients</div>
+                <div style={{ fontSize: '0.78rem', opacity: 0.85, marginTop: '2px' }}>{labPatientsDrillDown.doctorName} · {selectedMonth}</div>
+              </div>
+              <button onClick={() => setLabPatientsDrillDown(null)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', fontSize: '1.1rem', fontWeight: 800, padding: '4px 10px', lineHeight: 1 }}>×</button>
+            </div>
+            {/* Count badge */}
+            <div style={{ padding: '10px 20px', background: '#f5f3ff', borderBottom: '1px solid #e9d5ff', flexShrink: 0 }}>
+              <span style={{ background: '#7c3aed', color: 'white', borderRadius: '20px', padding: '3px 12px', fontSize: '0.8rem', fontWeight: 800 }}>
+                {labPatientsDrillDown.patients.length} Patient{labPatientsDrillDown.patients.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {/* Table */}
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {labPatientsDrillDown.patients.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No lab records found.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                  <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+                    <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: 700 }}>#</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'left', color: '#475569', fontWeight: 700 }}>Patient Name</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'center', color: '#475569', fontWeight: 700 }}>Test Date</th>
+                      <th style={{ padding: '10px 16px', textAlign: 'center', color: '#7c3aed', fontWeight: 700 }}>Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {labPatientsDrillDown.patients.map((p, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #f1f5f9', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        <td style={{ padding: '10px 16px', color: '#94a3b8', fontWeight: 600 }}>{i + 1}</td>
+                        <td style={{ padding: '10px 16px', color: '#1e293b', fontWeight: 600 }}>{p.name}</td>
+                        <td style={{ padding: '10px 16px', textAlign: 'center', color: '#475569' }}>{p.date}</td>
+                        <td style={{ padding: '10px 16px', textAlign: 'center', color: '#7c3aed', fontWeight: 800 }}>₹{p.amount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f5f3ff', borderTop: '2px solid #e9d5ff' }}>
+                      <td colSpan={3} style={{ padding: '10px 16px', color: '#7c3aed', fontWeight: 800, textAlign: 'right' }}>Total</td>
+                      <td style={{ padding: '10px 16px', textAlign: 'center', color: '#7c3aed', fontWeight: 900, fontSize: '1rem' }}>
+                        ₹{labPatientsDrillDown.patients.reduce((s, p) => s + p.amount, 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Patient Edit Modal ── */}
       {
         isEditModalOpen && (
@@ -3437,7 +3552,7 @@ const AdminDashboard = ({ onLogout }) => {
             <div className="registration-modal-content">
               <div className="registration-modal-header">
                 <h2>Edit Patient Record</h2>
-                <button className="registration-close-btn" onClick={() => setIsEditModalOpen(false)}>×</button>
+                <button className="registration-close-btn" onClick={() => { setIsEditModalOpen(false); setEditPhoneError(''); }}>×</button>
               </div>
               <form onSubmit={handleEditPatient} className="registration-form">
                 <div className="form-grid">
@@ -3509,8 +3624,23 @@ const AdminDashboard = ({ onLogout }) => {
                       type="tel"
                       placeholder="Mobile or Landline Number..."
                       value={editingPatient.phone}
-                      onChange={(e) => setEditingPatient({ ...editingPatient, phone: e.target.value })}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditingPatient({ ...editingPatient, phone: val });
+                        const digits = val.replace(/\D/g, '');
+                        if (val && digits.length !== 10) {
+                          setEditPhoneError('Contact number must be exactly 10 digits.');
+                        } else {
+                          setEditPhoneError('');
+                        }
+                      }}
+                      style={editPhoneError ? { borderColor: '#ef4444' } : {}}
                     />
+                    {editPhoneError && (
+                      <span style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                        {editPhoneError}
+                      </span>
+                    )}
                   </div>
 
                   <div className="form-divider full-width">Vitals & Physical Metrics</div>
@@ -3554,7 +3684,7 @@ const AdminDashboard = ({ onLogout }) => {
                 </div>
 
                 <div className="registration-actions">
-                  <button type="button" className="cancel-btn" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                  <button type="button" className="cancel-btn" onClick={() => { setIsEditModalOpen(false); setEditPhoneError(''); }}>Cancel</button>
                   <button type="submit" className="submit-btn" disabled={isSyncing}>
                     {isSyncing ? 'Saving Changes...' : '💾 Save Changes'}
                   </button>

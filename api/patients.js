@@ -21,7 +21,7 @@ export default async function handler(req, res) {
         const result = await sql`SELECT * FROM mrn WHERE mrn = ${mrn} LIMIT 1`;
         return res.status(200).json(result[0] || null);
       }
-      const result = await sql`SELECT *, ROW_NUMBER() OVER (ORDER BY mrn::int ASC) AS row_id FROM mrn LIMIT 500`;
+      const result = await sql`SELECT *, ROW_NUMBER() OVER (ORDER BY mrn::int ASC) AS row_id FROM mrn LIMIT 10000`;
       return res.status(200).json(result);
     }
 
